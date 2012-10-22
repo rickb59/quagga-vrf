@@ -34,12 +34,15 @@
 #include "workqueue.h"
 #include "prefix.h"
 #include "routemap.h"
+#include "vrf.h"
+#include <dirent.h>
 
 #include "zebra/rib.h"
 #include "zebra/rt.h"
 #include "zebra/zserv.h"
 #include "zebra/redistribute.h"
 #include "zebra/debug.h"
+
 
 /* Default rtm_table for all clients */
 extern struct zebra_t zebrad;
@@ -55,99 +58,20 @@ static const struct
 {  
   int key;
   int distance;
-} route_info[ZEBRA_ROUTE_MAX] =
+} route_info[] =
 {
-  [ZEBRA_ROUTE_SYSTEM]  = {ZEBRA_ROUTE_SYSTEM,    0},
-  [ZEBRA_ROUTE_KERNEL]  = {ZEBRA_ROUTE_KERNEL,    0},
-  [ZEBRA_ROUTE_CONNECT] = {ZEBRA_ROUTE_CONNECT,   0},
-  [ZEBRA_ROUTE_STATIC]  = {ZEBRA_ROUTE_STATIC,    1},
-  [ZEBRA_ROUTE_RIP]     = {ZEBRA_ROUTE_RIP,     120},
-  [ZEBRA_ROUTE_RIPNG]   = {ZEBRA_ROUTE_RIPNG,   120},
-  [ZEBRA_ROUTE_OSPF]    = {ZEBRA_ROUTE_OSPF,    110},
-  [ZEBRA_ROUTE_OSPF6]   = {ZEBRA_ROUTE_OSPF6,   110},
-  [ZEBRA_ROUTE_ISIS]    = {ZEBRA_ROUTE_ISIS,    115},
-  [ZEBRA_ROUTE_BGP]     = {ZEBRA_ROUTE_BGP,      20  /* IBGP is 200. */},
-  [ZEBRA_ROUTE_BABEL]   = {ZEBRA_ROUTE_BABEL,    95},
-  /* no entry/default: 150 */
+  {ZEBRA_ROUTE_SYSTEM,    0},
+  {ZEBRA_ROUTE_KERNEL,    0},
+  {ZEBRA_ROUTE_CONNECT,   0},
+  {ZEBRA_ROUTE_STATIC,    1},
+  {ZEBRA_ROUTE_RIP,     120},
+  {ZEBRA_ROUTE_RIPNG,   120},
+  {ZEBRA_ROUTE_OSPF,    110},
+  {ZEBRA_ROUTE_OSPF6,   110},
+  {ZEBRA_ROUTE_ISIS,    115},
+  {ZEBRA_ROUTE_BGP,      20  /* IBGP is 200. */}
 };
 
-/* Vector for routing table.  */
-static vector vrf_vector;
-
-/* Allocate new VRF.  */
-static struct vrf *
-vrf_alloc (const char *name)
-{
-  struct vrf *vrf;
-
-  vrf = XCALLOC (MTYPE_VRF, sizeof (struct vrf));
-
-  /* Put name.  */
-  if (name)
-    vrf->name = XSTRDUP (MTYPE_VRF_NAME, name);
-
-  /* Allocate routing table and static table.  */
-  vrf->table[AFI_IP][SAFI_UNICAST] = route_table_init ();
-  vrf->table[AFI_IP6][SAFI_UNICAST] = route_table_init ();
-  vrf->stable[AFI_IP][SAFI_UNICAST] = route_table_init ();
-  vrf->stable[AFI_IP6][SAFI_UNICAST] = route_table_init ();
-  vrf->table[AFI_IP][SAFI_MULTICAST] = route_table_init ();
-  vrf->table[AFI_IP6][SAFI_MULTICAST] = route_table_init ();
-  vrf->stable[AFI_IP][SAFI_MULTICAST] = route_table_init ();
-  vrf->stable[AFI_IP6][SAFI_MULTICAST] = route_table_init ();
-
-
-  return vrf;
-}
-
-/* Lookup VRF by identifier.  */
-struct vrf *
-vrf_lookup (u_int32_t id)
-{
-  return vector_lookup (vrf_vector, id);
-}
-
-/* Initialize VRF.  */
-static void
-vrf_init (void)
-{
-  struct vrf *default_table;
-
-  /* Allocate VRF vector.  */
-  vrf_vector = vector_init (1);
-
-  /* Allocate default main table.  */
-  default_table = vrf_alloc ("Default-IP-Routing-Table");
-
-  /* Default table index must be 0.  */
-  vector_set_index (vrf_vector, 0, default_table);
-}
-
-/* Lookup route table.  */
-struct route_table *
-vrf_table (afi_t afi, safi_t safi, u_int32_t id)
-{
-  struct vrf *vrf;
-
-  vrf = vrf_lookup (id);
-  if (! vrf)
-    return NULL;
-
-  return vrf->table[afi][safi];
-}
-
-/* Lookup static route table.  */
-struct route_table *
-vrf_static_table (afi_t afi, safi_t safi, u_int32_t id)
-{
-  struct vrf *vrf;
-
-  vrf = vrf_lookup (id);
-  if (! vrf)
-    return NULL;
-
-  return vrf->stable[afi][safi];
-}
 
 /* Add nexthop to the end of the list.  */
 static void
@@ -232,7 +156,7 @@ nexthop_ipv4_add (struct rib *rib, struct in_addr *ipv4, struct in_addr *src)
   return nexthop;
 }
 
-struct nexthop *
+static struct nexthop *
 nexthop_ipv4_ifindex_add (struct rib *rib, struct in_addr *ipv4, 
                           struct in_addr *src, unsigned int ifindex)
 {
@@ -323,9 +247,11 @@ nexthop_active_ipv4 (struct rib *rib, struct nexthop *nexthop, int set,
   struct route_node *rn;
   struct rib *match;
   struct nexthop *newhop;
-
+  int vrfid;
   if (nexthop->type == NEXTHOP_TYPE_IPV4)
     nexthop->ifindex = 0;
+
+  vrfid =  rib->vrf_id;
 
   if (set)
     UNSET_FLAG (nexthop->flags, NEXTHOP_FLAG_RECURSIVE);
@@ -337,7 +263,7 @@ nexthop_active_ipv4 (struct rib *rib, struct nexthop *nexthop, int set,
   p.prefix = nexthop->gate.ipv4;
 
   /* Lookup table.  */
-  table = vrf_table (AFI_IP, SAFI_UNICAST, 0);
+  table = vrf_table (AFI_IP, SAFI_UNICAST, vrfid);
   if (! table)
     return 0;
 
@@ -424,6 +350,9 @@ nexthop_active_ipv6 (struct rib *rib, struct nexthop *nexthop, int set,
   struct route_node *rn;
   struct rib *match;
   struct nexthop *newhop;
+  int id;
+
+  id = rib->vrf_id;
 
   if (nexthop->type == NEXTHOP_TYPE_IPV6)
     nexthop->ifindex = 0;
@@ -438,7 +367,7 @@ nexthop_active_ipv6 (struct rib *rib, struct nexthop *nexthop, int set,
   p.prefix = nexthop->gate.ipv6;
 
   /* Lookup table.  */
-  table = vrf_table (AFI_IP6, SAFI_UNICAST, 0);
+  table = vrf_table (AFI_IP6, SAFI_UNICAST, id);
   if (! table)
     return 0;
 
@@ -518,7 +447,7 @@ nexthop_active_ipv6 (struct rib *rib, struct nexthop *nexthop, int set,
 #endif /* HAVE_IPV6 */
 
 struct rib *
-rib_match_ipv4 (struct in_addr addr)
+rib_match_ipv4 (struct in_addr addr, u_int32_t id)
 {
   struct prefix_ipv4 p;
   struct route_table *table;
@@ -527,7 +456,7 @@ rib_match_ipv4 (struct in_addr addr)
   struct nexthop *newhop;
 
   /* Lookup table.  */
-  table = vrf_table (AFI_IP, SAFI_UNICAST, 0);
+  table = vrf_table (AFI_IP, SAFI_UNICAST, id);
   if (! table)
     return 0;
 
@@ -580,7 +509,7 @@ rib_match_ipv4 (struct in_addr addr)
 }
 
 struct rib *
-rib_lookup_ipv4 (struct prefix_ipv4 *p)
+rib_lookup_ipv4 (struct prefix_ipv4 *p, u_int32_t id)
 {
   struct route_table *table;
   struct route_node *rn;
@@ -588,7 +517,7 @@ rib_lookup_ipv4 (struct prefix_ipv4 *p)
   struct nexthop *nexthop;
 
   /* Lookup table.  */
-  table = vrf_table (AFI_IP, SAFI_UNICAST, 0);
+  table = vrf_table (AFI_IP, SAFI_UNICAST, id);
   if (! table)
     return 0;
 
@@ -635,7 +564,7 @@ rib_lookup_ipv4 (struct prefix_ipv4 *p)
  * 3: no matches found
  */
 int
-rib_lookup_ipv4_route (struct prefix_ipv4 *p, union sockunion * qgate)
+rib_lookup_ipv4_route (struct prefix_ipv4 *p, union sockunion * qgate, u_int32_t id)
 {
   struct route_table *table;
   struct route_node *rn;
@@ -643,7 +572,7 @@ rib_lookup_ipv4_route (struct prefix_ipv4 *p, union sockunion * qgate)
   struct nexthop *nexthop;
 
   /* Lookup table.  */
-  table = vrf_table (AFI_IP, SAFI_UNICAST, 0);
+  table = vrf_table (AFI_IP, SAFI_UNICAST, id);
   if (! table)
     return ZEBRA_RIB_LOOKUP_ERROR;
 
@@ -700,7 +629,7 @@ rib_lookup_ipv4_route (struct prefix_ipv4 *p, union sockunion * qgate)
 
 #ifdef HAVE_IPV6
 struct rib *
-rib_match_ipv6 (struct in6_addr *addr)
+rib_match_ipv6 (struct in6_addr *addr, u_int32_t id)
 {
   struct prefix_ipv6 p;
   struct route_table *table;
@@ -709,7 +638,7 @@ rib_match_ipv6 (struct in6_addr *addr)
   struct nexthop *newhop;
 
   /* Lookup table.  */
-  table = vrf_table (AFI_IP6, SAFI_UNICAST, 0);
+  table = vrf_table (AFI_IP6, SAFI_UNICAST, id);
   if (! table)
     return 0;
 
@@ -784,6 +713,9 @@ nexthop_active_check (struct route_node *rn, struct rib *rib,
   extern char *proto_rm[AFI_MAX][ZEBRA_ROUTE_MAX+1];
   struct route_map *rmap;
   int family;
+  int id;
+
+  id = 0;  /* must fix for nexthop_type_ifname* */
 
   family = 0;
   switch (nexthop->type)
@@ -798,7 +730,7 @@ nexthop_active_check (struct route_node *rn, struct rib *rib,
     case NEXTHOP_TYPE_IPV6_IFNAME:
       family = AFI_IP6;
     case NEXTHOP_TYPE_IFNAME:
-      ifp = if_lookup_by_name (nexthop->ifname);
+      ifp = if_lookup_by_name (nexthop->ifname, id);
       if (ifp && if_is_operative(ifp))
 	{
 	  if (set)
@@ -1236,7 +1168,6 @@ static const u_char meta_queue_map[ZEBRA_ROUTE_MAX] = {
   [ZEBRA_ROUTE_ISIS]    = 2,
   [ZEBRA_ROUTE_BGP]     = 3,
   [ZEBRA_ROUTE_HSLS]    = 4,
-  [ZEBRA_ROUTE_BABEL]   = 2,
 };
 
 /* Look into the RN and queue it into one or more priority queues,
@@ -1279,30 +1210,14 @@ rib_meta_queue_add (struct meta_queue *mq, struct route_node *rn)
 static void
 rib_queue_add (struct zebra_t *zebra, struct route_node *rn)
 {
-  char buf[INET_ADDRSTRLEN];
-  assert (zebra && rn);
   
   if (IS_ZEBRA_DEBUG_RIB_Q)
-    inet_ntop (AF_INET, &rn->p.u.prefix, buf, INET_ADDRSTRLEN);
-
-  /* Pointless to queue a route_node with no RIB entries to add or remove */
-  if (!rn->info)
     {
-      zlog_debug ("%s: called for route_node (%p, %d) with no ribs",
-                  __func__, rn, rn->lock);
-      zlog_backtrace(LOG_DEBUG);
-      return;
-    }
+      char buf[INET6_ADDRSTRLEN];
 
-  if (IS_ZEBRA_DEBUG_RIB_Q)
-    zlog_info ("%s: %s/%d: work queue added", __func__, buf, rn->p.prefixlen);
-
-  assert (zebra);
-
-  if (zebra->ribq == NULL)
-    {
-      zlog_err ("%s: work_queue does not exist!", __func__);
-      return;
+      zlog_info ("%s: %s/%d: work queue added", __func__,
+		 inet_ntop (rn->p.family, &rn->p.u.prefix, buf, INET6_ADDRSTRLEN),
+		 rn->p.prefixlen);
     }
 
   /*
@@ -1317,11 +1232,6 @@ rib_queue_add (struct zebra_t *zebra, struct route_node *rn)
     work_queue_add (zebra->ribq, zebra->mq);
 
   rib_meta_queue_add (zebra->mq, rn);
-
-  if (IS_ZEBRA_DEBUG_RIB_Q)
-    zlog_debug ("%s: %s/%d: rn %p queued", __func__, buf, rn->p.prefixlen, rn);
-
-  return;
 }
 
 /* Create new meta queue.
@@ -1349,8 +1259,6 @@ meta_queue_new (void)
 static void
 rib_queue_init (struct zebra_t *zebra)
 {
-  assert (zebra);
-  
   if (! (zebra->ribq = work_queue_new (zebra->master, 
                                        "route_node processing")))
     {
@@ -1366,11 +1274,7 @@ rib_queue_init (struct zebra_t *zebra)
   zebra->ribq->spec.hold = rib_process_hold_time;
   
   if (!(zebra->mq = meta_queue_new ()))
-  {
     zlog_err ("%s: could not initialise meta queue!", __func__);
-    return;
-  }
-  return;
 }
 
 /* RIB updates are processed via a queue of pointers to route_nodes.
@@ -1526,8 +1430,8 @@ rib_delnode (struct route_node *rn, struct rib *rib)
 int
 rib_add_ipv4 (int type, int flags, struct prefix_ipv4 *p, 
 	      struct in_addr *gate, struct in_addr *src,
-	      unsigned int ifindex, u_int32_t vrf_id,
-	      u_int32_t metric, u_char distance, safi_t safi)
+	      unsigned int ifindex, u_int32_t vrfid, u_int32_t table_id,
+	      u_int32_t metric, u_char distance)
 {
   struct rib *rib;
   struct rib *same = NULL;
@@ -1536,7 +1440,7 @@ rib_add_ipv4 (int type, int flags, struct prefix_ipv4 *p,
   struct nexthop *nexthop;
 
   /* Lookup table.  */
-  table = vrf_table (AFI_IP, safi, 0);
+  table = vrf_table (AFI_IP, SAFI_UNICAST, vrfid);
   if (! table)
     return 0;
 
@@ -1546,9 +1450,6 @@ rib_add_ipv4 (int type, int flags, struct prefix_ipv4 *p,
   /* Set default distance by route type. */
   if (distance == 0)
     {
-      if ((unsigned)type >= sizeof(route_info) / sizeof(route_info[0]))
-	distance = 150;
-      else
         distance = route_info[type].distance;
 
       /* iBGP distance is 200. */
@@ -1590,7 +1491,8 @@ rib_add_ipv4 (int type, int flags, struct prefix_ipv4 *p,
   rib->distance = distance;
   rib->flags = flags;
   rib->metric = metric;
-  rib->table = vrf_id;
+  rib->vrf_id = vrfid;
+  rib->table = table_id;
   rib->nexthop_num = 0;
   rib->uptime = time (NULL);
 
@@ -1641,11 +1543,12 @@ void rib_dump (const char * func, const struct prefix_ipv4 * p, const struct rib
   zlog_debug ("%s: dumping RIB entry %p for %s/%d", func, rib, straddr1, p->prefixlen);
   zlog_debug
   (
-    "%s: refcnt == %lu, uptime == %lu, type == %u, table == %d",
+    "%s: refcnt == %lu, uptime == %lu, type == %u, vrf== %d table == %d",
     func,
     rib->refcnt,
     (unsigned long) rib->uptime,
     rib->type,
+    rib->vrf_id,
     rib->table
   );
   zlog_debug
@@ -1687,7 +1590,7 @@ void rib_dump (const char * func, const struct prefix_ipv4 * p, const struct rib
  * RIB entry found by rib_lookup_ipv4_route()
  */
 
-void rib_lookup_and_dump (struct prefix_ipv4 * p)
+void rib_lookup_and_dump (struct prefix_ipv4 * p, u_int32_t vrfid)
 {
   struct route_table *table;
   struct route_node *rn;
@@ -1695,7 +1598,7 @@ void rib_lookup_and_dump (struct prefix_ipv4 * p)
   char prefix_buf[INET_ADDRSTRLEN];
 
   /* Lookup table.  */
-  table = vrf_table (AFI_IP, SAFI_UNICAST, 0);
+  table = vrf_table (AFI_IP, SAFI_UNICAST, vrfid);
   if (! table)
   {
     zlog_err ("%s: vrf_table() returned NULL", __func__);
@@ -1737,14 +1640,14 @@ void rib_lookup_and_dump (struct prefix_ipv4 * p)
  * actions, if needed: remove such a route from FIB and deSELECT
  * corresponding RIB entry. Then put affected RN into RIBQ head.
  */
-void rib_lookup_and_pushup (struct prefix_ipv4 * p)
+void rib_lookup_and_pushup (struct prefix_ipv4 * p, u_int32_t vrfid)
 {
   struct route_table *table;
   struct route_node *rn;
   struct rib *rib;
   unsigned changed = 0;
 
-  if (NULL == (table = vrf_table (AFI_IP, SAFI_UNICAST, 0)))
+  if (NULL == (table = vrf_table (AFI_IP, SAFI_UNICAST, vrfid)))
   {
     zlog_err ("%s: vrf_table() returned NULL", __func__);
     return;
@@ -1785,7 +1688,7 @@ void rib_lookup_and_pushup (struct prefix_ipv4 * p)
 }
 
 int
-rib_add_ipv4_multipath (struct prefix_ipv4 *p, struct rib *rib, safi_t safi)
+rib_add_ipv4_multipath (struct prefix_ipv4 *p, struct rib *rib, unsigned int vrfid)
 {
   struct route_table *table;
   struct route_node *rn;
@@ -1793,10 +1696,9 @@ rib_add_ipv4_multipath (struct prefix_ipv4 *p, struct rib *rib, safi_t safi)
   struct nexthop *nexthop;
   
   /* Lookup table.  */
-  table = vrf_table (AFI_IP, safi, 0);
+  table = vrf_table (AFI_IP, SAFI_UNICAST, vrfid);
   if (! table)
     return 0;
-
   /* Make it sure prefixlen is applied to the prefix. */
   apply_mask_ipv4 (p);
 
@@ -1859,7 +1761,7 @@ rib_add_ipv4_multipath (struct prefix_ipv4 *p, struct rib *rib, safi_t safi)
 /* XXX factor with rib_delete_ipv6 */
 int
 rib_delete_ipv4 (int type, int flags, struct prefix_ipv4 *p,
-		 struct in_addr *gate, unsigned int ifindex, u_int32_t vrf_id, safi_t safi)
+		 struct in_addr *gate, unsigned int ifindex, u_int32_t vrfid, u_int32_t table_id)
 {
   struct route_table *table;
   struct route_node *rn;
@@ -1871,7 +1773,7 @@ rib_delete_ipv4 (int type, int flags, struct prefix_ipv4 *p,
   char buf2[INET_ADDRSTRLEN];
 
   /* Lookup table.  */
-  table = vrf_table (AFI_IP, safi, 0);
+  table = vrf_table (AFI_IP, SAFI_UNICAST, vrfid);
   if (! table)
     return 0;
 
@@ -1918,10 +1820,8 @@ rib_delete_ipv4 (int type, int flags, struct prefix_ipv4 *p,
       if (rib->type != type)
 	continue;
       if (rib->type == ZEBRA_ROUTE_CONNECT && (nexthop = rib->nexthop) &&
-	  nexthop->type == NEXTHOP_TYPE_IFINDEX)
+	  nexthop->type == NEXTHOP_TYPE_IFINDEX && nexthop->ifindex == ifindex)
 	{
-	  if (nexthop->ifindex != ifindex)
-	    continue;
 	  if (rib->refcnt)
 	    {
 	      rib->refcnt--;
@@ -1987,14 +1887,14 @@ rib_delete_ipv4 (int type, int flags, struct prefix_ipv4 *p,
 
 /* Install static route into rib. */
 static void
-static_install_ipv4 (struct prefix *p, struct static_ipv4 *si)
+static_install_ipv4 (struct prefix *p, struct static_ipv4 *si, unsigned int vrfid)
 {
   struct rib *rib;
   struct route_node *rn;
   struct route_table *table;
 
   /* Lookup table.  */
-  table = vrf_table (AFI_IP, SAFI_UNICAST, 0);
+  table = vrf_table (AFI_IP, SAFI_UNICAST, vrfid);
   if (! table)
     return;
 
@@ -2037,6 +1937,7 @@ static_install_ipv4 (struct prefix *p, struct static_ipv4 *si)
       rib->distance = si->distance;
       rib->metric = 0;
       rib->nexthop_num = 0;
+      rib->vrf_id = vrfid;
 
       switch (si->type)
         {
@@ -2078,7 +1979,7 @@ static_ipv4_nexthop_same (struct nexthop *nexthop, struct static_ipv4 *si)
 
 /* Uninstall static route from RIB. */
 static void
-static_uninstall_ipv4 (struct prefix *p, struct static_ipv4 *si)
+static_uninstall_ipv4 (struct prefix *p, struct static_ipv4 *si, unsigned int  vrfid)
 {
   struct route_node *rn;
   struct rib *rib;
@@ -2086,7 +1987,7 @@ static_uninstall_ipv4 (struct prefix *p, struct static_ipv4 *si)
   struct route_table *table;
 
   /* Lookup table.  */
-  table = vrf_table (AFI_IP, SAFI_UNICAST, 0);
+  table = vrf_table (AFI_IP, SAFI_UNICAST, vrfid);
   if (! table)
     return;
   
@@ -2140,7 +2041,7 @@ static_uninstall_ipv4 (struct prefix *p, struct static_ipv4 *si)
 /* Add static route into static route configuration. */
 int
 static_add_ipv4 (struct prefix *p, struct in_addr *gate, const char *ifname,
-		 u_char flags, u_char distance, u_int32_t vrf_id)
+		 u_char flags, u_char distance, u_int32_t vrfid)
 {
   u_char type = 0;
   struct route_node *rn;
@@ -2151,7 +2052,7 @@ static_add_ipv4 (struct prefix *p, struct in_addr *gate, const char *ifname,
   struct route_table *stable;
 
   /* Lookup table.  */
-  stable = vrf_static_table (AFI_IP, SAFI_UNICAST, vrf_id);
+  stable = vrf_static_table (AFI_IP, SAFI_UNICAST, vrfid);
   if (! stable)
     return -1;
   
@@ -2185,7 +2086,7 @@ static_add_ipv4 (struct prefix *p, struct in_addr *gate, const char *ifname,
 
   /* Distance changed.  */
   if (update)
-    static_delete_ipv4 (p, gate, ifname, update->distance, vrf_id);
+    static_delete_ipv4 (p, gate, ifname, update->distance, vrfid);
 
   /* Make new static route structure. */
   si = XCALLOC (MTYPE_STATIC_IPV4, sizeof (struct static_ipv4));
@@ -2193,6 +2094,7 @@ static_add_ipv4 (struct prefix *p, struct in_addr *gate, const char *ifname,
   si->type = type;
   si->distance = distance;
   si->flags = flags;
+  si->vrf_id = vrfid;
 
   if (gate)
     si->gate.ipv4 = *gate;
@@ -2227,7 +2129,7 @@ static_add_ipv4 (struct prefix *p, struct in_addr *gate, const char *ifname,
   si->next = cp;
 
   /* Install into rib. */
-  static_install_ipv4 (p, si);
+  static_install_ipv4 (p, si, vrfid);
 
   return 1;
 }
@@ -2235,7 +2137,7 @@ static_add_ipv4 (struct prefix *p, struct in_addr *gate, const char *ifname,
 /* Delete static route from static route configuration. */
 int
 static_delete_ipv4 (struct prefix *p, struct in_addr *gate, const char *ifname,
-		    u_char distance, u_int32_t vrf_id)
+		    u_char distance, u_int32_t vrfid)
 {
   u_char type = 0;
   struct route_node *rn;
@@ -2243,7 +2145,7 @@ static_delete_ipv4 (struct prefix *p, struct in_addr *gate, const char *ifname,
   struct route_table *stable;
 
   /* Lookup table.  */
-  stable = vrf_static_table (AFI_IP, SAFI_UNICAST, vrf_id);
+  stable = vrf_static_table (AFI_IP, SAFI_UNICAST, vrfid);
   if (! stable)
     return -1;
 
@@ -2275,7 +2177,7 @@ static_delete_ipv4 (struct prefix *p, struct in_addr *gate, const char *ifname,
     }
 
   /* Install into rib. */
-  static_uninstall_ipv4 (p, si);
+  static_uninstall_ipv4 (p, si, vrfid);
 
   /* Unlink static route from linked list. */
   if (si->prev)
@@ -2321,8 +2223,8 @@ rib_bogus_ipv6 (int type, struct prefix_ipv6 *p,
 
 int
 rib_add_ipv6 (int type, int flags, struct prefix_ipv6 *p,
-	      struct in6_addr *gate, unsigned int ifindex, u_int32_t vrf_id,
-	      u_int32_t metric, u_char distance, safi_t safi)
+	      struct in6_addr *gate, unsigned int ifindex, u_int32_t vrfid, u_int32_t table_id,
+	      u_int32_t metric, u_char distance)
 {
   struct rib *rib;
   struct rib *same = NULL;
@@ -2331,7 +2233,7 @@ rib_add_ipv6 (int type, int flags, struct prefix_ipv6 *p,
   struct nexthop *nexthop;
 
   /* Lookup table.  */
-  table = vrf_table (AFI_IP6, safi, 0);
+  table = vrf_table (AFI_IP6, SAFI_UNICAST, vrfid);
   if (! table)
     return 0;
 
@@ -2382,7 +2284,8 @@ rib_add_ipv6 (int type, int flags, struct prefix_ipv6 *p,
   rib->distance = distance;
   rib->flags = flags;
   rib->metric = metric;
-  rib->table = vrf_id;
+  rib->vrf_id = vrfid;
+  rib->table = table_id;
   rib->nexthop_num = 0;
   rib->uptime = time (NULL);
 
@@ -2416,7 +2319,7 @@ rib_add_ipv6 (int type, int flags, struct prefix_ipv6 *p,
 /* XXX factor with rib_delete_ipv6 */
 int
 rib_delete_ipv6 (int type, int flags, struct prefix_ipv6 *p,
-		 struct in6_addr *gate, unsigned int ifindex, u_int32_t vrf_id, safi_t safi)
+		 struct in6_addr *gate, unsigned int ifindex, u_int32_t vrfid, u_int32_t table_id)
 {
   struct route_table *table;
   struct route_node *rn;
@@ -2431,7 +2334,7 @@ rib_delete_ipv6 (int type, int flags, struct prefix_ipv6 *p,
   apply_mask_ipv6 (p);
 
   /* Lookup table.  */
-  table = vrf_table (AFI_IP6, safi, 0);
+  table = vrf_table (AFI_IP6, SAFI_UNICAST, vrfid);
   if (! table)
     return 0;
   
@@ -2468,10 +2371,8 @@ rib_delete_ipv6 (int type, int flags, struct prefix_ipv6 *p,
       if (rib->type != type)
         continue;
       if (rib->type == ZEBRA_ROUTE_CONNECT && (nexthop = rib->nexthop) &&
-	  nexthop->type == NEXTHOP_TYPE_IFINDEX)
+	  nexthop->type == NEXTHOP_TYPE_IFINDEX && nexthop->ifindex == ifindex)
 	{
-	  if (nexthop->ifindex != ifindex)
-	    continue;
 	  if (rib->refcnt)
 	    {
 	      rib->refcnt--;
@@ -2537,14 +2438,14 @@ rib_delete_ipv6 (int type, int flags, struct prefix_ipv6 *p,
 
 /* Install static route into rib. */
 static void
-static_install_ipv6 (struct prefix *p, struct static_ipv6 *si)
+static_install_ipv6 (struct prefix *p, struct static_ipv6 *si, u_int32_t vrfid)
 {
   struct rib *rib;
   struct route_table *table;
   struct route_node *rn;
 
   /* Lookup table.  */
-  table = vrf_table (AFI_IP6, SAFI_UNICAST, 0);
+  table = vrf_table (AFI_IP6, SAFI_UNICAST, vrfid);
   if (! table)
     return;
 
@@ -2630,7 +2531,7 @@ static_ipv6_nexthop_same (struct nexthop *nexthop, struct static_ipv6 *si)
 }
 
 static void
-static_uninstall_ipv6 (struct prefix *p, struct static_ipv6 *si)
+static_uninstall_ipv6 (struct prefix *p, struct static_ipv6 *si, u_int32_t vrfid)
 {
   struct route_table *table;
   struct route_node *rn;
@@ -2638,7 +2539,7 @@ static_uninstall_ipv6 (struct prefix *p, struct static_ipv6 *si)
   struct nexthop *nexthop;
 
   /* Lookup table.  */
-  table = vrf_table (AFI_IP6, SAFI_UNICAST, 0);
+  table = vrf_table (AFI_IP6, SAFI_UNICAST, vrfid);
   if (! table)
     return;
 
@@ -2695,7 +2596,7 @@ static_uninstall_ipv6 (struct prefix *p, struct static_ipv6 *si)
 int
 static_add_ipv6 (struct prefix *p, u_char type, struct in6_addr *gate,
 		 const char *ifname, u_char flags, u_char distance,
-		 u_int32_t vrf_id)
+		 u_int32_t vrfid)
 {
   struct route_node *rn;
   struct static_ipv6 *si;
@@ -2704,7 +2605,7 @@ static_add_ipv6 (struct prefix *p, u_char type, struct in6_addr *gate,
   struct route_table *stable;
 
   /* Lookup table.  */
-  stable = vrf_static_table (AFI_IP6, SAFI_UNICAST, vrf_id);
+  stable = vrf_static_table (AFI_IP6, SAFI_UNICAST, vrfid);
   if (! stable)
     return -1;
     
@@ -2774,7 +2675,7 @@ static_add_ipv6 (struct prefix *p, u_char type, struct in6_addr *gate,
   si->next = cp;
 
   /* Install into rib. */
-  static_install_ipv6 (p, si);
+  static_install_ipv6 (p, si, vrfid);
 
   return 1;
 }
@@ -2782,14 +2683,14 @@ static_add_ipv6 (struct prefix *p, u_char type, struct in6_addr *gate,
 /* Delete static route from static route configuration. */
 int
 static_delete_ipv6 (struct prefix *p, u_char type, struct in6_addr *gate,
-		    const char *ifname, u_char distance, u_int32_t vrf_id)
+		    const char *ifname, u_char distance, u_int32_t vrfid)
 {
   struct route_node *rn;
   struct static_ipv6 *si;
   struct route_table *stable;
 
   /* Lookup table.  */
-  stable = vrf_static_table (AFI_IP6, SAFI_UNICAST, vrf_id);
+  stable = vrf_static_table (AFI_IP6, SAFI_UNICAST, vrfid);
   if (! stable)
     return -1;
 
@@ -2814,7 +2715,7 @@ static_delete_ipv6 (struct prefix *p, u_char type, struct in6_addr *gate,
     }
 
   /* Install into rib. */
-  static_uninstall_ipv6 (p, si);
+  static_uninstall_ipv6 (p, si, vrfid);
 
   /* Unlink static route from linked list. */
   if (si->prev)
@@ -2835,18 +2736,18 @@ static_delete_ipv6 (struct prefix *p, u_char type, struct in6_addr *gate,
 
 /* RIB update function. */
 void
-rib_update (void)
+rib_update (u_int32_t vrfid)
 {
   struct route_node *rn;
   struct route_table *table;
   
-  table = vrf_table (AFI_IP, SAFI_UNICAST, 0);
+  table = vrf_table (AFI_IP, SAFI_UNICAST, vrfid);
   if (table)
     for (rn = route_top (table); rn; rn = route_next (rn))
       if (rn->info)
         rib_queue_add (&zebrad, rn);
 
-  table = vrf_table (AFI_IP6, SAFI_UNICAST, 0);
+  table = vrf_table (AFI_IP6, SAFI_UNICAST, vrfid);
   if (table)
     for (rn = route_top (table); rn; rn = route_next (rn))
       if (rn->info)
@@ -2879,10 +2780,10 @@ rib_weed_table (struct route_table *table)
 
 /* Delete all routes from non main table. */
 void
-rib_weed_tables (void)
+rib_weed_tables (u_int32_t vrfid)
 {
-  rib_weed_table (vrf_table (AFI_IP, SAFI_UNICAST, 0));
-  rib_weed_table (vrf_table (AFI_IP6, SAFI_UNICAST, 0));
+  rib_weed_table (vrf_table (AFI_IP, SAFI_UNICAST, vrfid));
+  rib_weed_table (vrf_table (AFI_IP6, SAFI_UNICAST, vrfid));
 }
 
 /* Delete self installed routes after zebra is relaunched.  */
@@ -2915,44 +2816,10 @@ rib_sweep_table (struct route_table *table)
 
 /* Sweep all RIB tables.  */
 void
-rib_sweep_route (void)
+rib_sweep_route (u_int32_t vrfid)
 {
-  rib_sweep_table (vrf_table (AFI_IP, SAFI_UNICAST, 0));
-  rib_sweep_table (vrf_table (AFI_IP6, SAFI_UNICAST, 0));
-}
-
-/* Remove specific by protocol routes from 'table'. */
-static unsigned long
-rib_score_proto_table (u_char proto, struct route_table *table)
-{
-  struct route_node *rn;
-  struct rib *rib;
-  struct rib *next;
-  unsigned long n = 0;
-
-  if (table)
-    for (rn = route_top (table); rn; rn = route_next (rn))
-      for (rib = rn->info; rib; rib = next)
-        {
-          next = rib->next;
-          if (CHECK_FLAG (rib->status, RIB_ENTRY_REMOVED))
-            continue;
-          if (rib->type == proto)
-            {
-              rib_delnode (rn, rib);
-              n++;
-            }
-        }
-
-  return n;
-}
-
-/* Remove specific by protocol routes. */
-unsigned long
-rib_score_proto (u_char proto)
-{
-  return  rib_score_proto_table (proto, vrf_table (AFI_IP,  SAFI_UNICAST, 0))
-         +rib_score_proto_table (proto, vrf_table (AFI_IP6, SAFI_UNICAST, 0));
+  rib_sweep_table (vrf_table (AFI_IP, SAFI_UNICAST, vrfid));
+  rib_sweep_table (vrf_table (AFI_IP6, SAFI_UNICAST, vrfid));
 }
 
 /* Close RIB and clean up kernel routes. */
@@ -2974,10 +2841,10 @@ rib_close_table (struct route_table *table)
 
 /* Close all RIB tables.  */
 void
-rib_close (void)
+rib_close (u_int32_t vrfid)
 {
-  rib_close_table (vrf_table (AFI_IP, SAFI_UNICAST, 0));
-  rib_close_table (vrf_table (AFI_IP6, SAFI_UNICAST, 0));
+  rib_close_table (vrf_table (AFI_IP, SAFI_UNICAST, vrfid));
+  rib_close_table (vrf_table (AFI_IP6, SAFI_UNICAST, vrfid));
 }
 
 /* Routing information base initialize. */
@@ -2986,5 +2853,5 @@ rib_init (void)
 {
   rib_queue_init (&zebrad);
   /* VRF initialization.  */
-  vrf_init ();
+//  vrf_init ();
 }

@@ -34,7 +34,6 @@
 #include "privs.h"
 #include "sigevent.h"
 #include "filter.h"
-#include "zclient.h"
 
 #include "isisd/dict.h"
 #include "include-netbsd/iso.h"
@@ -44,9 +43,6 @@
 #include "isisd/isis_circuit.h"
 #include "isisd/isisd.h"
 #include "isisd/isis_dynhn.h"
-#include "isisd/isis_spf.h"
-#include "isisd/isis_route.h"
-#include "isisd/isis_zebra.h"
 
 /* Default configuration file name */
 #define ISISD_DEFAULT_CONFIG "isisd.conf"
@@ -70,7 +66,7 @@ struct zebra_privs_t isisd_privs = {
   .vty_group = VTY_GROUP,
 #endif
   .caps_p = _caps_p,
-  .cap_num_p = sizeof (_caps_p) / sizeof (*_caps_p),
+  .cap_num_p = 2,
   .cap_num_i = 0
 };
 
@@ -79,7 +75,6 @@ struct option longopts[] = {
   {"daemon",      no_argument,       NULL, 'd'},
   {"config_file", required_argument, NULL, 'f'},
   {"pid_file",    required_argument, NULL, 'i'},
-  {"socket",      required_argument, NULL, 'z'},
   {"vty_addr",    required_argument, NULL, 'A'},
   {"vty_port",    required_argument, NULL, 'P'},
   {"user",        required_argument, NULL, 'u'},
@@ -135,7 +130,6 @@ Daemon which manages IS-IS routing\n\n\
 -d, --daemon       Runs in daemon mode\n\
 -f, --config_file  Set configuration file name\n\
 -i, --pid_file     Set process identifier file name\n\
--z, --socket       Set path of zebra socket\n\
 -A, --vty_addr     Set vty's bind address\n\
 -P, --vty_port     Set vty's port number\n\
 -u, --user         User to run as\n\
@@ -157,10 +151,7 @@ reload ()
   zlog_debug ("Reload");
   /* FIXME: Clean up func call here */
   vty_reset ();
-  (void) isisd_privs.change (ZPRIVS_RAISE);
   execve (_progpath, _argv, _envp);
-  zlog_err ("Reload failed: cannot exec %s: %s", _progpath,
-      safe_strerror (errno));
 }
 
 static void
@@ -227,7 +218,7 @@ struct quagga_signal_t isisd_signals[] =
  * Main routine of isisd. Parse arguments and handle IS-IS state machine.
  */
 int
-main (int argc, char **argv, char **envp)
+main (int argc, char **argv, char **envp, const char *ZEBRA_VTYSH_PATH)
 {
   char *p;
   int opt, vty_port = ISISD_VTY_PORT;
@@ -255,7 +246,7 @@ main (int argc, char **argv, char **envp)
   /* Command line argument treatment. */
   while (1)
     {
-      opt = getopt_long (argc, argv, "df:i:z:hA:p:P:u:g:vC", longopts, 0);
+      opt = getopt_long (argc, argv, "df:i:hA:p:P:u:g:vC", longopts, 0);
 
       if (opt == EOF)
 	break;
@@ -272,9 +263,6 @@ main (int argc, char **argv, char **envp)
 	  break;
 	case 'i':
 	  pid_file = optarg;
-	  break;
-	case 'z':
-	  zclient_serv_path_set (optarg);
 	  break;
 	case 'A':
 	  vty_addr = optarg;
@@ -331,18 +319,13 @@ main (int argc, char **argv, char **envp)
   memory_init ();
   access_list_init();
   isis_init ();
-  isis_circuit_init ();
-  isis_spf_cmds_init ();
-
-  /* create the global 'isis' instance */
-  isis_new (1);
-
-  isis_zebra_init ();
-
+  dyn_cache_init ();
   sort_node ();
 
   /* parse config file */
   /* this is needed three times! because we have interfaces before the areas */
+  vty_read_config (config_file, config_default);
+  vty_read_config (config_file, config_default);
   vty_read_config (config_file, config_default);
 
   /* Start execution only if not in dry-run mode */
@@ -350,11 +333,13 @@ main (int argc, char **argv, char **envp)
     return(0);
   
   /* demonize */
-  if (daemon_mode)
-    daemon (0, 0);
+  if (daemon_mode && daemon (0, 0) < 0)
+    {
+      zlog_err("ISISd daemon failed: %s", strerror(errno));
+      exit (1);
+    }
 
   /* Process ID file creation. */
-  if (pid_file[0] != '\0')
     pid_output (pid_file);
 
   /* Make isis vty socket. */

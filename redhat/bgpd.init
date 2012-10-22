@@ -1,12 +1,10 @@
 #!/bin/bash
-# chkconfig: - 16 84
-# config: /etc/quagga/bgpd.conf
-
-### BEGIN INIT INFO
-# Provides: bgpd
-# Short-Description: BGP routing engine
-# Description: BGP routing engine for use with Zebra
-### END INIT INFO
+#
+# chkconfig: 2345 16 84
+# description: A BGPv4, BGPv4+, BGPv4- routing engine for use with Zebra
+#
+# processname: bgpd
+# config: /etc/zebra/bgpd.conf
 
 # source function library
 . /etc/rc.d/init.d/functions
@@ -17,56 +15,49 @@
 # quagga command line options
 . /etc/sysconfig/quagga
 
+	# Check that networking is up.
+[ "${NETWORKING}" = "no" ] && exit 0
+
+	# The process must be configured first.
+[ -f /etc/quagga/bgpd.conf ] || exit 0
+
 RETVAL=0
-PROG="bgpd"
-cmd=bgpd
-LOCK_FILE=/var/lock/subsys/bgpd
-CONF_FILE=/etc/quagga/bgpd.conf
+prog="bgpd"
 
 case "$1" in
   start)
-	# Check that networking is up.
-	[ "${NETWORKING}" = "no" ] && exit 1
-
-	# The process must be configured first.
-	[ -f $CONF_FILE ] || exit 6
-	if [ `id -u` -ne 0 ]; then
-		echo $"Insufficient privilege" 1>&2
-		exit 4
-	fi
-
-	echo -n $"Starting $PROG: "
-	daemon $cmd -d $BGPD_OPTS -f $CONF_FILE
+	echo -n $"Starting $prog: "
+        daemon /usr/sbin/bgpd -d $BGPD_OPTS
 	RETVAL=$?
-	[ $RETVAL -eq 0 ] && touch $LOCK_FILE
+	[ $RETVAL -eq 0 ] && touch /var/lock/subsys/bgpd
 	echo
 	;;
   stop)
-	echo -n $"Shutting down $PROG: "
-	killproc $cmd
+	echo -n $"Shutting down $prog: "
+	killproc bgpd
 	RETVAL=$?
-	[ $RETVAL -eq 0 ] && rm -f $LOCK_FILE
+	[ $RETVAL -eq 0 ] && rm -f /var/lock/subsys/bgpd
 	echo
 	;;
-  restart|reload|force-reload)
+  restart|reload)
 	$0 stop
 	$0 start
 	RETVAL=$?
 	;;
-  condrestart|try-restart)
-	if [ -f $LOCK_FILE ]; then
+  condrestart)
+        if [ -f /var/lock/subsys/bgpd ]; then
 		$0 stop
 		$0 start
 	fi
 	RETVAL=$?
 	;;
   status)
-	status $cmd
+        status bgpd
 	RETVAL=$?
 	;;
   *)
-	echo $"Usage: $0 {start|stop|restart|reload|force-reload|condrestart|try-restart|status}"
-	exit 2
+	echo $"Usage: $0 {start|stop|restart|reload|condrestart|status}"
+	exit 1
 esac
 
 exit $RETVAL

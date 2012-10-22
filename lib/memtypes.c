@@ -78,6 +78,8 @@ struct memory_list memory_list_zebra[] =
   { MTYPE_RTADV_PREFIX,		"Router Advertisement Prefix"	},
   { MTYPE_VRF,			"VRF"				},
   { MTYPE_VRF_NAME,		"VRF name"			},
+  { MTYPE_VRF_HANDLE,		"VRF handle"		},
+  { MTYPE_SOCK_NAME,		"Socket name"		},
   { MTYPE_NEXTHOP,		"Nexthop"			},
   { MTYPE_RIB,			"RIB"				},
   { MTYPE_RIB_QUEUE,		"RIB process work queue"	},
@@ -113,7 +115,6 @@ struct memory_list memory_list_bgp[] =
   { MTYPE_BGP_SYNCHRONISE,	"BGP synchronise"		},
   { MTYPE_BGP_ADJ_IN,		"BGP adj in"			},
   { MTYPE_BGP_ADJ_OUT,		"BGP adj out"			},
-  { MTYPE_BGP_MPATH_INFO,	"BGP multipath info"		},
   { 0, NULL },
   { MTYPE_AS_LIST,		"BGP AS list"			},
   { MTYPE_AS_FILTER,		"BGP AS filter"			},
@@ -172,13 +173,6 @@ struct memory_list memory_list_ripng[] =
   { MTYPE_RIPNG_PEER,         "RIPng peer"			},
   { MTYPE_RIPNG_OFFSET_LIST,  "RIPng offset lst"		},
   { MTYPE_RIPNG_RTE_DATA,     "RIPng rte data"			},
-  { -1, NULL }
-};
-
-struct memory_list memory_list_babel[] =
-{
-  { MTYPE_BABEL,              "Babel structure"			},
-  { MTYPE_BABEL_IF,           "Babel interface"			},
   { -1, NULL }
 };
 
@@ -248,8 +242,6 @@ struct memory_list memory_list_isis[] =
   { MTYPE_ISIS_ROUTE_INFO,    "ISIS route info"			},
   { MTYPE_ISIS_NEXTHOP,       "ISIS nexthop"			},
   { MTYPE_ISIS_NEXTHOP6,      "ISIS nexthop6"			},
-  { MTYPE_ISIS_DICT,          "ISIS dictionary"			},
-  { MTYPE_ISIS_DICT_NODE,     "ISIS dictionary node"		},
   { -1, NULL },
 };
 

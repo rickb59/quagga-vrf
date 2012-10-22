@@ -22,9 +22,6 @@
 #ifndef _ZEBRA_ZCLIENT_H
 #define _ZEBRA_ZCLIENT_H
 
-/* For struct zapi_ipv{4,6}. */
-#include "prefix.h"
-
 /* For struct interface and struct connected. */
 #include "if.h"
 
@@ -32,7 +29,7 @@
 #define ZEBRA_MAX_PACKET_SIZ          4096
 
 /* Zebra header size. */
-#define ZEBRA_HEADER_SIZE             6
+#define ZEBRA_HEADER_SIZE             8
 
 /* Structure for the zebra client. */
 struct zclient
@@ -71,17 +68,17 @@ struct zclient
   u_char default_information;
 
   /* Pointer to the callback functions. */
-  int (*router_id_update) (int, struct zclient *, uint16_t);
-  int (*interface_add) (int, struct zclient *, uint16_t);
-  int (*interface_delete) (int, struct zclient *, uint16_t);
-  int (*interface_up) (int, struct zclient *, uint16_t);
-  int (*interface_down) (int, struct zclient *, uint16_t);
-  int (*interface_address_add) (int, struct zclient *, uint16_t);
-  int (*interface_address_delete) (int, struct zclient *, uint16_t);
-  int (*ipv4_route_add) (int, struct zclient *, uint16_t);
-  int (*ipv4_route_delete) (int, struct zclient *, uint16_t);
-  int (*ipv6_route_add) (int, struct zclient *, uint16_t);
-  int (*ipv6_route_delete) (int, struct zclient *, uint16_t);
+  int (*router_id_update) (int, uint16_t, struct zclient *, uint16_t);
+  int (*interface_add) (int, uint16_t, struct zclient *, uint16_t);
+  int (*interface_delete) (int, uint16_t, struct zclient *, uint16_t);
+  int (*interface_up) (int, uint16_t, struct zclient *, uint16_t);
+  int (*interface_down) (int, uint16_t, struct zclient *, uint16_t);
+  int (*interface_address_add) (int, uint16_t, struct zclient *, uint16_t);
+  int (*interface_address_delete) (int, uint16_t, struct zclient *, uint16_t);
+  int (*ipv4_route_add) (int, uint16_t, struct zclient *, uint16_t);
+  int (*ipv4_route_delete) (int, uint16_t, struct zclient *, uint16_t);
+  int (*ipv6_route_add) (int, uint16_t, struct zclient *, uint16_t);
+  int (*ipv6_route_delete) (int, uint16_t, struct zclient *, uint16_t);
 };
 
 /* Zebra API message flag. */
@@ -100,6 +97,7 @@ struct zserv_header
   uint8_t version;
 #define ZSERV_VERSION	2
   uint16_t command;
+  uint16_t vrf_id;
 };
 
 /* Zebra IPv4 route message API. */
@@ -110,8 +108,6 @@ struct zapi_ipv4
   u_char flags;
 
   u_char message;
-
-  safi_t safi;
 
   u_char nexthop_num;
   struct in_addr **nexthop;
@@ -132,31 +128,34 @@ extern void zclient_stop (struct zclient *);
 extern void zclient_reset (struct zclient *);
 extern void zclient_free (struct zclient *);
 
-extern int  zclient_socket_connect (struct zclient *);
-extern void zclient_serv_path_set  (char *path);
+/* Get TCP socket connection to zebra daemon at loopback address. */
+extern int zclient_socket (void);
+
+/* Get unix stream socket connection to zebra daemon at given path. */
+extern int zclient_socket_un (const char *);
 
 /* Send redistribute command to zebra daemon. Do not update zclient state. */
-extern int zebra_redistribute_send (int command, struct zclient *, int type);
+extern int zebra_redistribute_send (int command, uint16_t vrf_id, struct zclient *, int type);
 
 /* If state has changed, update state and call zebra_redistribute_send. */
-extern void zclient_redistribute (int command, struct zclient *, int type);
+extern void zclient_redistribute (int command, uint16_t vrf_id, struct zclient *, int type);
 
 /* If state has changed, update state and send the command to zebra. */
-extern void zclient_redistribute_default (int command, struct zclient *);
+extern void zclient_redistribute_default (int command, uint16_t vrf_id, struct zclient *);
 
 /* Send the message in zclient->obuf to the zebra daemon (or enqueue it).
    Returns 0 for success or -1 on an I/O error. */
 extern int zclient_send_message(struct zclient *);
 
 /* create header for command, length to be filled in by user later */
-extern void zclient_create_header (struct stream *, uint16_t);
+extern void zclient_create_header (struct stream *, uint16_t, uint16_t);
 
-extern struct interface *zebra_interface_add_read (struct stream *);
+extern struct interface *zebra_interface_add_read (uint16_t, struct stream *);
 extern struct interface *zebra_interface_state_read (struct stream *s);
 extern struct connected *zebra_interface_address_read (int, struct stream *);
 extern void zebra_interface_if_set_value (struct stream *, struct interface *);
-extern void zebra_router_id_update_read (struct stream *s, struct prefix *rid);
-extern int zapi_ipv4_route (u_char, struct zclient *, struct prefix_ipv4 *, 
+extern void zebra_router_id_update_read (uint16_t, struct stream *s, struct prefix *rid);
+extern int zapi_ipv4_route (u_char, uint16_t, struct zclient *, struct prefix_ipv4 *,
                             struct zapi_ipv4 *);
 
 #ifdef HAVE_IPV6
@@ -170,8 +169,6 @@ struct zapi_ipv6
 
   u_char message;
 
-  safi_t safi;
-
   u_char nexthop_num;
   struct in6_addr **nexthop;
 
@@ -183,7 +180,7 @@ struct zapi_ipv6
   u_int32_t metric;
 };
 
-extern int zapi_ipv6_route (u_char cmd, struct zclient *zclient, 
+extern int zapi_ipv6_route (u_char cmd, uint16_t vrf_id, struct zclient *zclient,
                      struct prefix_ipv6 *p, struct zapi_ipv6 *api);
 #endif /* HAVE_IPV6 */
 

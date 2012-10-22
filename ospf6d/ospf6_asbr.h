@@ -48,8 +48,6 @@ struct ospf6_external_info
 
   struct in6_addr forwarding;
   /* u_int32_t tag; */
-
-  unsigned int ifindex;
 };
 
 /* AS-External-LSA */

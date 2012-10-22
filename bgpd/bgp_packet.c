@@ -946,7 +946,7 @@ bgp_route_refresh_send (struct peer *peer, afi_t afi, safi_t safi,
 
   /* Adjust safi code. */
   if (safi == SAFI_MPLS_VPN)
-    safi = SAFI_MPLS_LABELED_VPN;
+    safi = BGP_SAFI_VPNV4;
   
   s = stream_new (BGP_MAX_PACKET_SIZE);
 
@@ -1036,7 +1036,7 @@ bgp_capability_send (struct peer *peer, afi_t afi, safi_t safi,
 
   /* Adjust safi code. */
   if (safi == SAFI_MPLS_VPN)
-    safi = SAFI_MPLS_LABELED_VPN;
+    safi = BGP_SAFI_VPNV4;
 
   s = stream_new (BGP_MAX_PACKET_SIZE);
 
@@ -1152,7 +1152,7 @@ bgp_open_receive (struct peer *peer, bgp_size_t size)
   as_t as4 = 0;
   struct peer *realpeer;
   struct in_addr remote_id;
-  int mp_capability;
+  int capability;
   u_int8_t notify_data_remote_as[2];
   u_int8_t notify_data_remote_id[4];
 
@@ -1174,7 +1174,7 @@ bgp_open_receive (struct peer *peer, bgp_size_t size)
 	        inet_ntoa (remote_id));
   
   /* BEGIN to read the capability here, but dont do it yet */
-  mp_capability = 0;
+  capability = 0;
   optlen = stream_getc (peer->ibuf);
   
   if (optlen != 0)
@@ -1381,7 +1381,7 @@ bgp_open_receive (struct peer *peer, bgp_size_t size)
 
   /* remote router-id check. */
   if (remote_id.s_addr == 0
-      || IPV4_CLASS_DE (ntohl (remote_id.s_addr))
+      || ntohl (remote_id.s_addr) >= 0xe0000000
       || ntohl (peer->local_id.s_addr) == ntohl (remote_id.s_addr))
     {
       if (BGP_DEBUG (normal, NORMAL))
@@ -1459,14 +1459,10 @@ bgp_open_receive (struct peer *peer, bgp_size_t size)
   /* Open option part parse. */
   if (optlen != 0) 
     {
-      if ((ret = bgp_open_option_parse (peer, optlen, &mp_capability)) < 0)
-        {
-          bgp_notify_send (peer,
-                 BGP_NOTIFY_OPEN_ERR,
-                 BGP_NOTIFY_OPEN_UNACEP_HOLDTIME);
+      ret = bgp_open_option_parse (peer, optlen, &capability);
+      if (ret < 0)
 	  return ret;
         }
-    }
   else
     {
       if (BGP_DEBUG (normal, NORMAL))
@@ -1474,13 +1470,8 @@ bgp_open_receive (struct peer *peer, bgp_size_t size)
 		   peer->host);
     }
 
-  /* 
-   * Assume that the peer supports the locally configured set of
-   * AFI/SAFIs if the peer did not send us any Mulitiprotocol
-   * capabilities, or if 'override-capability' is configured.
-   */
-  if (! mp_capability ||
-      CHECK_FLAG (peer->flags, PEER_FLAG_OVERRIDE_CAPABILITY))
+  /* Override capability. */
+  if (! capability || CHECK_FLAG (peer->flags, PEER_FLAG_OVERRIDE_CAPABILITY))
     {
       peer->afc_nego[AFI_IP][SAFI_UNICAST] = peer->afc[AFI_IP][SAFI_UNICAST];
       peer->afc_nego[AFI_IP][SAFI_MULTICAST] = peer->afc[AFI_IP][SAFI_MULTICAST];
@@ -1808,17 +1799,17 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
     {
       if (mp_update.length 
 	  && mp_update.afi == AFI_IP 
-	  && mp_update.safi == SAFI_MPLS_LABELED_VPN)
+	  && mp_update.safi == BGP_SAFI_VPNV4)
 	bgp_nlri_parse_vpnv4 (peer, NLRI_ATTR_ARG, &mp_update);
 
       if (mp_withdraw.length 
 	  && mp_withdraw.afi == AFI_IP 
-	  && mp_withdraw.safi == SAFI_MPLS_LABELED_VPN)
+	  && mp_withdraw.safi == BGP_SAFI_VPNV4)
 	bgp_nlri_parse_vpnv4 (peer, NULL, &mp_withdraw);
 
       if (! withdraw_len
 	  && mp_withdraw.afi == AFI_IP
-	  && mp_withdraw.safi == SAFI_MPLS_LABELED_VPN
+	  && mp_withdraw.safi == BGP_SAFI_VPNV4
 	  && mp_withdraw.length == 0)
 	{
 	  /* End-of-RIB received */
@@ -1978,7 +1969,7 @@ bgp_route_refresh_receive (struct peer *peer, bgp_size_t size)
   /* Check AFI and SAFI. */
   if ((afi != AFI_IP && afi != AFI_IP6)
       || (safi != SAFI_UNICAST && safi != SAFI_MULTICAST
-	  && safi != SAFI_MPLS_LABELED_VPN))
+	  && safi != BGP_SAFI_VPNV4))
     {
       if (BGP_DEBUG (normal, NORMAL))
 	{
@@ -1989,7 +1980,7 @@ bgp_route_refresh_receive (struct peer *peer, bgp_size_t size)
     }
 
   /* Adjust safi code. */
-  if (safi == SAFI_MPLS_LABELED_VPN)
+  if (safi == BGP_SAFI_VPNV4)
     safi = SAFI_MPLS_VPN;
 
   if (size != BGP_MSG_ROUTE_REFRESH_MIN_SIZE - BGP_HEADER_SIZE)
@@ -2063,7 +2054,7 @@ bgp_route_refresh_receive (struct peer *peer, bgp_size_t size)
 		      break;
 		    }
 		  ok = ((p_end - p_pnt) >= sizeof(u_int32_t)) ;
-		  if (ok)
+		  if (!ok)
 		    {
 		      memcpy (&seq, p_pnt, sizeof (u_int32_t));
                       p_pnt += sizeof (u_int32_t);

@@ -96,10 +96,10 @@ static struct test_segment mp_segments[] =
   },
   /* 6 */
   { "MP3",
-    "MP IP6/MPLS-labeled VPN",
+    "MP IP6/VPNv4",
     { CAPABILITY_CODE_MP, 0x4, 0x0, 0x2, 0x0, 0x80 },
-    6, SHOULD_PARSE, 0,
-    1, AFI_IP6, SAFI_MPLS_LABELED_VPN, VALID_AFI,
+    6, SHOULD_PARSE, 0, /* parses, but invalid afi,safi */
+    1, AFI_IP6, BGP_SAFI_VPNV4, INVALID_AFI,
   },
   /* 7 */
   { "MP5",
@@ -110,14 +110,21 @@ static struct test_segment mp_segments[] =
   },
   /* 8 */
   { "MP6",
-    "MP IP4/MPLS-laveled VPN",
+    "MP IP4/VPNv4",
     { CAPABILITY_CODE_MP, 0x4, 0x0, 0x1, 0x0, 0x80 },
     6, SHOULD_PARSE, 0,
-    1, AFI_IP, SAFI_MPLS_LABELED_VPN, VALID_AFI,
+    1, AFI_IP, BGP_SAFI_VPNV4, VALID_AFI,
+  },  
+  /* 9 */
+  { "MP7",
+    "MP IP4/VPNv6",
+    { CAPABILITY_CODE_MP, 0x4, 0x0, 0x1, 0x0, 0x81 },
+    6, SHOULD_PARSE, 0, /* parses, but invalid afi,safi tuple */
+    1, AFI_IP, BGP_SAFI_VPNV6, INVALID_AFI,
   },  
   /* 10 */
   { "MP8",
-    "MP unknown AFI/SAFI",
+    "MP unknown AFI",
     { CAPABILITY_CODE_MP, 0x4, 0x0, 0xa, 0x0, 0x81 },
     6, SHOULD_PARSE, 0,
     1, 0xa, 0x81, INVALID_AFI, /* parses, but unknown */
@@ -599,7 +606,7 @@ static struct bgp *bgp;
 static as_t asn = 100;
 
 int
-main (void)
+main (void, const char *ZEBRA_VTYSH_PATH)
 {
   struct peer *peer;
   int i, j;

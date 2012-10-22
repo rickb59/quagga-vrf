@@ -20,6 +20,7 @@
  */
 
 #include <zebra.h>
+#include <config.h>
 
 #include <lib/version.h>
 #include "getopt.h"
@@ -39,6 +40,7 @@
 #include "zebra/router-id.h"
 #include "zebra/irdp.h"
 #include "zebra/rtadv.h"
+#include "vrf.h"
 
 /* Zebra instance */
 struct zebra_t zebrad =
@@ -71,7 +73,6 @@ struct option longopts[] =
   { "keep_kernel", no_argument,       NULL, 'k'},
   { "config_file", required_argument, NULL, 'f'},
   { "pid_file",    required_argument, NULL, 'i'},
-  { "socket",      required_argument, NULL, 'z'},
   { "help",        no_argument,       NULL, 'h'},
   { "vty_addr",    required_argument, NULL, 'A'},
   { "vty_port",    required_argument, NULL, 'P'},
@@ -129,7 +130,6 @@ usage (char *progname, int status)
 	      "-d, --daemon       Runs in daemon mode\n"\
 	      "-f, --config_file  Set configuration file name\n"\
 	      "-i, --pid_file     Set process identifier file name\n"\
-	      "-z, --socket       Set path of zebra socket\n"\
 	      "-k, --keep_kernel  Don't delete old routes which installed by "\
 				  "zebra.\n"\
 	      "-C, --dryrun       Check configuration for validity and exit\n"\
@@ -168,7 +168,7 @@ sigint (void)
   zlog_notice ("Terminating on signal");
 
   if (!retain_mode)
-    rib_close ();
+    rib_close (0);  /* RCB TODO for all VRFs */
 #ifdef HAVE_IRDP
   irdp_finish();
 #endif
@@ -216,10 +216,28 @@ main (int argc, char **argv)
   char *config_file = NULL;
   char *progname;
   struct thread thread;
-  char *zserv_path = NULL;
+  int vrfid;
+  int err;
+  char vrf_path[100];
 
   /* Set umask before anything for security */
   umask (0027);
+#ifdef HAVE_VRF
+
+#if 1
+	pid = getpid();
+	sprintf(vrf_path, "/proc/%d/ns/net",pid);
+	err = chmod (vrf_path, S_IRUSR|S_IRGRP);
+	if (err < 0)
+		fprintf(stderr, "Could not chmod  %s: %s\n",
+		vrf_path, strerror(errno));
+
+	err = chown (vrf_path, 92,92);
+	if (err < 0)
+		fprintf(stderr, "Could not chown  %s: %s\n",
+		vrf_path, strerror(errno));
+#endif
+#endif /* HAVE_VRF */
 
   /* preserve my name */
   progname = ((p = strrchr (argv[0], '/')) ? ++p : argv[0]);
@@ -232,9 +250,9 @@ main (int argc, char **argv)
       int opt;
   
 #ifdef HAVE_NETLINK  
-      opt = getopt_long (argc, argv, "bdkf:i:z:hA:P:ru:g:vs:C", longopts, 0);
+      opt = getopt_long (argc, argv, "bdkf:i:hA:P:ru:g:vs:C", longopts, 0);
 #else
-      opt = getopt_long (argc, argv, "bdkf:i:z:hA:P:ru:g:vC", longopts, 0);
+      opt = getopt_long (argc, argv, "bdkf:i:hA:P:ru:g:vC", longopts, 0);
 #endif /* HAVE_NETLINK */
 
       if (opt == EOF)
@@ -264,9 +282,6 @@ main (int argc, char **argv)
         case 'i':
           pid_file = optarg;
           break;
-	case 'z':
-	  zserv_path = optarg;
-	  break;
 	case 'P':
 	  /* Deal with atoi() returning 0 on failure, and zebra not
 	     listening on zebra port... */
@@ -309,6 +324,8 @@ main (int argc, char **argv)
   /* Make master thread emulator. */
   zebrad.master = thread_master_create ();
 
+  default_vrf_create ();
+
   /* privs initialise */
   zprivs_init (&zserv_privs);
 
@@ -320,6 +337,7 @@ main (int argc, char **argv)
 
   /* Zebra related initialize. */
   zebra_init ();
+  vrf_init();
   rib_init ();
   zebra_if_init ();
   zebra_debug_init ();
@@ -335,11 +353,28 @@ main (int argc, char **argv)
   /* For debug purpose. */
   /* SET_FLAG (zebra_debug_event, ZEBRA_DEBUG_EVENT); */
 
+
+#ifdef HAVE_VRF
+  vrf_read();
+  /* for each VRF */
+  /* Make kernel routing socket. */
+  for (vrfid=0; vrfid >= 0;vrfid = get_next_vrf(vrfid)) {
+	  if(set_vrf(vrfid))
+		  continue;
+  	  kernel_init ();
+  	  interface_list ();
+  	  route_read ();
+   }
+  set_vrf(0); /* return to Default */
+#else
   /* Make kernel routing socket. */
   kernel_init ();
   interface_list ();
   route_read ();
 
+#endif /* HAVE_VRF */
+
+/* end for each VRF */
   /* Sort VTY commands. */
   sort_node ();
 
@@ -361,7 +396,9 @@ main (int argc, char **argv)
     return(0);
   
   /* Clean up rib. */
-  rib_weed_tables ();
+
+  for (vrfid=0; vrfid >= 0;vrfid = get_next_vrf(vrfid))
+	  rib_weed_tables (vrfid);
 
   /* Exit when zebra is working in batch mode. */
   if (batch_mode)
@@ -385,14 +422,17 @@ main (int argc, char **argv)
   *  will be equal to the current getpid(). To know about such routes,
   * we have to have route_read() called before.
   */
-  if (! keep_kernel_mode)
-    rib_sweep_route ();
+  if (! keep_kernel_mode) {
+	  for (vrfid=0; vrfid >= 0;vrfid = get_next_vrf(vrfid))
+		  rib_sweep_route (vrfid);
+  }
+
 
   /* Needed for BSD routing socket. */
   pid = getpid ();
 
   /* This must be done only after locking pidfile (bug #403). */
-  zebra_zserv_socket_init (zserv_path);
+  zebra_zserv_socket_init ();
 
   /* Make vty server socket. */
   vty_serv_sock (vty_addr, vty_port, ZEBRA_VTYSH_PATH);

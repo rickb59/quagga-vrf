@@ -29,6 +29,8 @@ unsigned long zebra_debug_event;
 unsigned long zebra_debug_packet;
 unsigned long zebra_debug_kernel;
 unsigned long zebra_debug_rib;
+unsigned long zebra_debug_vrf;
+
 
 DEFUN (show_debugging_zebra,
        show_debugging_zebra_cmd,
@@ -62,6 +64,9 @@ DEFUN (show_debugging_zebra,
 		     VTY_NEWLINE);
 	}
     }
+
+  if (IS_ZEBRA_DEBUG_VRF)
+    vty_out (vty, "  Zebra VRF debugging is on%s", VTY_NEWLINE);
 
   if (IS_ZEBRA_DEBUG_KERNEL)
     vty_out (vty, "  Zebra kernel debugging is on%s", VTY_NEWLINE);
@@ -143,6 +148,29 @@ DEFUN (debug_zebra_kernel,
        "Debug option set for zebra between kernel interface\n")
 {
   zebra_debug_kernel = ZEBRA_DEBUG_KERNEL;
+  return CMD_SUCCESS;
+}
+
+DEFUN (debug_zebra_vrf,
+       debug_zebra_vrf_cmd,
+       "debug zebra vrf",
+       DEBUG_STR
+       "Zebra configuration\n"
+       "Debug option set for zebra between vrf interface\n")
+{
+  zebra_debug_vrf = ZEBRA_DEBUG_VRF;
+  return CMD_SUCCESS;
+}
+
+DEFUN (no_debug_zebra_vrf,
+       no_debug_zebra_vrf_cmd,
+       "no debug zebra vrf",
+       NO_STR
+       DEBUG_STR
+       "Zebra configuration\n"
+       "Debug option set for zebra between vrf interface\n")
+{
+  zebra_debug_vrf = 0;
   return CMD_SUCCESS;
 }
 
@@ -312,6 +340,7 @@ zebra_debug_init (void)
   zebra_debug_packet = 0;
   zebra_debug_kernel = 0;
   zebra_debug_rib = 0;
+  zebra_debug_vrf = 0;
 
   install_node (&debug_node, config_write_debug);
 
@@ -330,6 +359,9 @@ zebra_debug_init (void)
   install_element (ENABLE_NODE, &no_debug_zebra_kernel_cmd);
   install_element (ENABLE_NODE, &no_debug_zebra_rib_cmd);
   install_element (ENABLE_NODE, &no_debug_zebra_rib_q_cmd);
+  install_element (ENABLE_NODE, &debug_zebra_vrf_cmd);
+  install_element (ENABLE_NODE, &no_debug_zebra_vrf_cmd);
+
 
   install_element (CONFIG_NODE, &debug_zebra_events_cmd);
   install_element (CONFIG_NODE, &debug_zebra_packet_cmd);

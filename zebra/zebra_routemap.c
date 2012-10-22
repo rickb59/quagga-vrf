@@ -138,7 +138,7 @@ route_match_interface (void *rule, struct prefix *prefix,
     {
       if (strcasecmp(ifname, "any") == 0)
 	return RMAP_MATCH;
-      ifindex = ifname2ifindex(ifname);
+      ifindex = ifname2ifindex(ifname, 0); /* RCB TODO per VRF */
       if (ifindex == 0)
 	return RMAP_NOMATCH;
       nexthop = object;
@@ -366,14 +366,16 @@ DEFUN (set_src,
 {
   struct in_addr src;
   struct interface *pif;
+  int id;
 
+  id = 0;
   if (inet_pton(AF_INET, argv[0], &src) <= 0)
     {
       vty_out (vty, "%% not a local address%s", VTY_NEWLINE);
       return CMD_WARNING;
     }
 
-    pif = if_lookup_exact_address (src);
+    pif = if_lookup_exact_address (src, id);
     if (!pif)
       {
         vty_out (vty, "%% not a local address%s", VTY_NEWLINE);

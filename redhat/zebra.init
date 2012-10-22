@@ -1,73 +1,64 @@
 #!/bin/bash
-# chkconfig: - 15 85
+#
+# chkconfig: 2345 15 85
+# description: GNU Zebra routing manager
+#
+# processname: zebra
 # config: /etc/quagga/zebra.conf
-
-### BEGIN INIT INFO
-# Provides: zebra
-# Short-Description: GNU Zebra routing manager
-# Description: GNU Zebra routing manager
-### END INIT INFO
 
 # source function library
 . /etc/rc.d/init.d/functions
 
-# Get network config
-. /etc/sysconfig/network
-
 # quagga command line options
 . /etc/sysconfig/quagga
 
+# Check that networking is up.
+[ "${NETWORKING}" = "no" ] && exit 0
+
+# The process must be configured first.
+[ -f /etc/quagga/zebra.conf ] || exit 0
+
 RETVAL=0
-PROG="zebra"
-cmd=zebra
-LOCK_FILE=/var/lock/subsys/zebra
-CONF_FILE=/etc/quagga/zebra.conf
+
+prog="zebra"
 
 case "$1" in
   start)
-	# Check that networking is up.
-	[ "${NETWORKING}" = "no" ] && exit 1
+	echo -n $"Starting $prog: "
 
-	# The process must be configured first.
-	[ -f $CONF_FILE ] || exit 6
-	if [ `id -u` -ne 0 ]; then
-		echo $"Insufficient privilege" 1>&2
-		exit 4
-	fi
-
-	echo -n $"Starting $PROG: "
 	/sbin/ip route flush proto zebra
-	daemon $cmd -d $ZEBRA_OPTS -f $CONF_FILE
+			
+        daemon /usr/sbin/zebra -d $ZEBRA_OPTS
 	RETVAL=$?
-	[ $RETVAL -eq 0 ] && touch $LOCK_FILE
+	[ $RETVAL -eq 0 ] && touch /var/lock/subsys/zebra
 	echo
 	;;
   stop)
-	echo -n $"Shutting down $PROG: "
-	killproc $cmd
+	echo -n $"Shutting down $prog: "
+	killproc zebra
 	RETVAL=$?
-	[ $RETVAL -eq 0 ] && rm -f $LOCK_FILE
+	[ $RETVAL -eq 0 ] && rm -f /var/lock/subsys/zebra
 	echo
 	;;
-  restart|reload|force-reload)
+  restart|reload)
 	$0 stop
 	$0 start
 	RETVAL=$?
 	;;
-  condrestart|try-restart)
-	if [ -f $LOCK_FILE ]; then
+  condrestart)
+        if [ -f /var/lock/subsys/zebra ]; then
 		$0 stop
 		$0 start
 	fi
 	RETVAL=$?
 	;;
   status)
-	status $cmd
+        status zebra
 	RETVAL=$?
 	;;
   *)
-	echo $"Usage: $0 {start|stop|restart|reload|force-reload|condrestart|try-restart|status}"
-	exit 2
+	echo $"Usage: $0 {start|stop|restart|reload|condrestart|status}"
+	exit 1
 esac
 
 exit $RETVAL

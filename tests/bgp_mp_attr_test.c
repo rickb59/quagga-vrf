@@ -1,8 +1,3 @@
-/* this testcase is currently broken
- * -- 2012-05-01 David Lamparter <equinox@diac24.net>
- */
-int main() { return 0; }
-
 #include <zebra.h>
 
 #include "vty.h"
@@ -29,7 +24,6 @@ int main() { return 0; }
 struct zebra_privs_t *bgpd_privs = NULL;
 struct thread_master *master = NULL;
 
-#if 0
 static int failed = 0;
 static int tty = 0;
 
@@ -292,10 +286,10 @@ static struct test_segment {
     SHOULD_ERR,
     AFI_IP, SAFI_UNICAST, VALID_AFI,
   },
-  { "IPv4-MLVPN",
-    "IPv4/MPLS-labeled VPN MP Reach, RD, Nexthop, 3 NLRIs", 
+  { "IPv4-vpnv4",
+    "IPv4/VPNv4 MP Reach, RD, Nexthop, 3 NLRIs", 
     {
-      /* AFI / SAFI */		0x0, AFI_IP, SAFI_MPLS_LABELED_VPN,
+      /* AFI / SAFI */		0x0, AFI_IP, BGP_SAFI_VPNV4,
       /* nexthop bytes */	12,
       /* RD */			0, 0, 1, 2,
                                 0, 0xff, 3, 4,
@@ -415,10 +409,10 @@ static struct test_segment mp_unreach_segments [] =
     SHOULD_ERR,
     AFI_IP, SAFI_UNICAST, VALID_AFI,
   },
-  { "IPv4-unreach-MLVPN",
-    "IPv4/MPLS-labeled VPN MP Unreach, RD, 3 NLRIs", 
+  { "IPv4-unreach-vpnv4",
+    "IPv4/VPNv4 MP Unreach, RD, 3 NLRIs", 
     {
-      /* AFI / SAFI */		0x0, AFI_IP, SAFI_MPLS_LABELED_VPN,
+      /* AFI / SAFI */		0x0, AFI_IP, BGP_SAFI_VPNV4,
       /* nexthop bytes */	12,
       /* RD */			0, 0, 1, 2,
                                 0, 0xff, 3, 4,
@@ -455,9 +449,9 @@ parse_test (struct peer *peer, struct test_segment *t, int type)
   printf ("%s: %s\n", t->name, t->desc);
 
   if (type == BGP_ATTR_MP_REACH_NLRI)
-    ret = bgp_mp_reach_parse (peer, t->len, &attr, BGP_ATTR_FLAG_OPTIONAL, BGP_INPUT_PNT (peer), &nlri);
+    ret = bgp_mp_reach_parse (peer, t->len, &attr, &nlri);
   else
-    ret = bgp_mp_unreach_parse (peer, t->len, BGP_ATTR_FLAG_OPTIONAL, BGP_INPUT_PNT (peer), &nlri);
+    ret = bgp_mp_unreach_parse (peer, t->len, &nlri);
 
   if (!ret)
     {
@@ -493,7 +487,7 @@ static struct bgp *bgp;
 static as_t asn = 100;
 
 int
-main (void)
+main (void, const char *ZEBRA_VTYSH_PATH)
 {
   struct peer *peer;
   int i, j;
@@ -539,4 +533,3 @@ main (void)
   printf ("failures: %d\n", failed);
   return failed;
 }
-#endif /* #if 0 */

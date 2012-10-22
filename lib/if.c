@@ -20,7 +20,7 @@
  * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
  * Boston, MA 02111-1307, USA.
  */
-
+#define HAVE_VRF 1
 #include <zebra.h>
 
 #include "linklist.h"
@@ -35,6 +35,9 @@
 #include "buffer.h"
 #include "str.h"
 #include "log.h"
+#include "vrf.h"
+#include "zebra/rib.h"
+
 
 /* Master list of interfaces. */
 struct list *iflist;
@@ -113,7 +116,7 @@ if_cmp_func (struct interface *ifp1, struct interface *ifp2)
 
 /* Create new interface structure. */
 struct interface *
-if_create (const char *name, int namelen)
+if_create (const char *name, int namelen, int vrfid)
 {
   struct interface *ifp;
 
@@ -124,7 +127,7 @@ if_create (const char *name, int namelen)
   assert (namelen <= INTERFACE_NAMSIZ);	/* Need space for '\0' at end. */
   strncpy (ifp->name, name, namelen);
   ifp->name[namelen] = '\0';
-  if (if_lookup_by_name(ifp->name) == NULL)
+  if (if_lookup_by_name(ifp->name, vrfid) == NULL)
     listnode_add_sort (iflist, ifp);
   else
     zlog_err("if_create(%s): corruption detected -- interface with this "
@@ -146,7 +149,7 @@ if_delete_retain (struct interface *ifp)
     (*if_master.if_delete_hook) (ifp);
 
   /* Free connected address list */
-  list_delete_all_node (ifp->connected);
+  list_delete (ifp->connected);
 }
 
 /* Delete and free interface structure. */
@@ -156,8 +159,6 @@ if_delete (struct interface *ifp)
   listnode_delete (iflist, ifp);
 
   if_delete_retain(ifp);
-
-  list_free (ifp->connected);
 
   XFREE (MTYPE_IF, ifp);
 }
@@ -178,7 +179,7 @@ if_add_hook (int type, int (*func)(struct interface *ifp))
   }
 }
 
-/* Interface existance check by index. */
+/* Interface existence check by index. */
 struct interface *
 if_lookup_by_index (unsigned int index)
 {
@@ -203,17 +204,17 @@ ifindex2ifname (unsigned int index)
 }
 
 unsigned int
-ifname2ifindex (const char *name)
+ifname2ifindex (const char *name, int vrfid)
 {
   struct interface *ifp;
 
-  return ((ifp = if_lookup_by_name(name)) != NULL) ? ifp->ifindex
+  return ((ifp = if_lookup_by_name(name, vrfid)) != NULL) ? ifp->ifindex
                                                    : IFINDEX_INTERNAL;
 }
 
 /* Interface existance check by interface name. */
 struct interface *
-if_lookup_by_name (const char *name)
+if_lookup_by_name (const char *name, int vrfid)
 {
   struct listnode *node;
   struct interface *ifp;
@@ -221,14 +222,14 @@ if_lookup_by_name (const char *name)
   if (name)
     for (ALL_LIST_ELEMENTS_RO (iflist, node, ifp))
       {
-        if (strcmp(name, ifp->name) == 0)
+        if ((strcmp(name, ifp->name) == 0) && ( (vrfid < 0) ? 1 : (vrfid == ifp->vrf_id)))
           return ifp;
       }
   return NULL;
 }
 
 struct interface *
-if_lookup_by_name_len(const char *name, size_t namelen)
+if_lookup_by_name_len(const char *name, size_t namelen, int vrfid)
 {
   struct listnode *node;
   struct interface *ifp;
@@ -238,6 +239,7 @@ if_lookup_by_name_len(const char *name, size_t namelen)
 
   for (ALL_LIST_ELEMENTS_RO (iflist, node, ifp))
     {
+	  if((vrfid < 0) || (ifp->vrf_id == vrfid))
       if (!memcmp(name, ifp->name, namelen) && (ifp->name[namelen] == '\0'))
 	return ifp;
     }
@@ -246,7 +248,7 @@ if_lookup_by_name_len(const char *name, size_t namelen)
 
 /* Lookup interface by IPv4 address. */
 struct interface *
-if_lookup_exact_address (struct in_addr src)
+if_lookup_exact_address (struct in_addr src, int vrfid)
 {
   struct listnode *node;
   struct listnode *cnode;
@@ -262,10 +264,13 @@ if_lookup_exact_address (struct in_addr src)
 
 	  if (p && p->family == AF_INET)
 	    {
+		  if (ifp->vrf_id == vrfid)
+		  {
 	      if (IPV4_ADDR_SAME (&p->u.prefix4, &src))
 		return ifp;
 	    }	      
 	}
+    }
     }
   return NULL;
 }
@@ -307,21 +312,23 @@ if_lookup_address (struct in_addr src)
 /* Get interface by name if given name interface doesn't exist create
    one. */
 struct interface *
-if_get_by_name (const char *name)
+if_get_by_name (const char *name, int vrfid)
 {
   struct interface *ifp;
 
-  return ((ifp = if_lookup_by_name(name)) != NULL) ? ifp :
-	 if_create(name, strlen(name));
+  return ((ifp = if_lookup_by_name(name,vrfid)) != NULL) ? ifp :
+	 if_create(name, strlen(name), vrfid);
 }
 
 struct interface *
-if_get_by_name_len(const char *name, size_t namelen)
+if_get_by_name_len(const char *name, size_t namelen, int vrfid)
 {
   struct interface *ifp;
+//  struct list *iflist;
 
-  return ((ifp = if_lookup_by_name_len(name, namelen)) != NULL) ? ifp :
-	 if_create(name, namelen);
+
+  return ((ifp = if_lookup_by_name_len(name, namelen, vrfid)) != NULL) ? ifp :
+	 if_create(name, namelen, vrfid);
 }
 
 /* Does interface up ? */
@@ -431,7 +438,6 @@ if_dump (const struct interface *ifp)
   struct listnode *node;
   struct connected *c;
 
-  for (ALL_LIST_ELEMENTS_RO (ifp->connected, node, c))
     zlog_info ("Interface %s index %d metric %d mtu %d "
 #ifdef HAVE_IPV6
                "mtu6 %d "
@@ -442,11 +448,14 @@ if_dump (const struct interface *ifp)
                ifp->mtu6,
 #endif /* HAVE_IPV6 */
                if_flag_dump (ifp->flags));
+  
+  for (ALL_LIST_ELEMENTS_RO (ifp->connected, node, c))
+    ;
 }
 
 /* Interface printing for all interface. */
 void
-if_dump_all (void)
+if_dump_all (struct list *iflist)
 {
   struct listnode *node;
   void *p;
@@ -490,6 +499,7 @@ DEFUN (no_interface_desc,
   return CMD_SUCCESS;
 }
 
+
 #ifdef SUNOS_5
 /* Need to handle upgrade from SUNWzebra to Quagga. SUNWzebra created
  * a seperate struct interface for each logical interface, so config
@@ -517,7 +527,7 @@ if_sunwzebra_get (const char *name, size_t nlen)
   struct interface *ifp;
   size_t seppos = 0;
 
-  if ( (ifp = if_lookup_by_name_len(name, nlen)) != NULL)
+  if ( (ifp = if_lookup_by_name_len(name, nlen, vrf_id)) != NULL)
     return ifp;
   
   /* hunt the primary interface name... */
@@ -532,6 +542,24 @@ if_sunwzebra_get (const char *name, size_t nlen)
 }
 #endif /* SUNOS_5 */
 
+
+/* Is this of sub-interface syntax ? */
+/* returns position of sub-interface indicator ie . position */
+/* return of 0 indicates that the string is not a sub-intf string */
+int
+if_is_subif (char *name_if)
+{
+  size_t suboff = 0;
+  while (suboff < INTERFACE_NAMSIZ && name_if[suboff] != '.')
+    suboff++;
+  if (name_if[suboff] == '.') {
+    return (suboff);
+  }
+  else
+    return(0);
+}
+
+
 DEFUN (interface,
        interface_cmd,
        "interface IFNAME",
@@ -540,6 +568,9 @@ DEFUN (interface,
 {
   struct interface *ifp;
   size_t sl;
+  int vrfid;
+  int i;
+  vrfid = -1;
 
   if ((sl = strlen(argv[0])) > INTERFACE_NAMSIZ)
     {
@@ -552,10 +583,20 @@ DEFUN (interface,
 #ifdef SUNOS_5
   ifp = if_sunwzebra_get (argv[0], sl);
 #else
-  ifp = if_get_by_name_len(argv[0], sl);
+  ifp = if_get_by_name_len(argv[0], sl, vrfid);
 #endif /* SUNOS_5 */
 
   vty->index = ifp;
+
+  if(i = if_is_subif(ifp->name)) {
+	  char parent[INTERFACE_NAMSIZ];
+	  struct interface *parp;
+
+	  vty->node = SUB_INTERFACE_NODE;
+	  strncpy (parent,ifp->name,i);
+	  ifp->parent = if_get_by_name_len(parent, i, vrfid);
+  }
+  else
   vty->node = INTERFACE_NODE;
 
   return CMD_SUCCESS;
@@ -570,8 +611,10 @@ DEFUN_NOSH (no_interface,
 {
   // deleting interface
   struct interface *ifp;
+  int vrfid;
+  vrfid = 0;
 
-  ifp = if_lookup_by_name (argv[0]);
+  ifp = if_lookup_by_name (argv[0], vrfid);
 
   if (ifp == NULL)
     {
@@ -765,7 +808,7 @@ if_nametoindex (const char *name)
 {
   struct interface *ifp;
 
-  return ((ifp = if_lookup_by_name_len(name, strnlen(name, IFNAMSIZ))) != NULL)
+  return ((ifp = if_lookup_by_name_len(name, strnlen(name, IFNAMSIZ), vrf_id)
   	 ? ifp->ifindex : 0;
 }
 #endif
@@ -864,17 +907,15 @@ ifaddr_ipv4_lookup (struct in_addr *addr, unsigned int ifindex)
 
 /* Initialize interface list. */
 void
-if_init (void)
+if_init ()
 {
   iflist = list_new ();
 #if 0
   ifaddr_ipv4_table = route_table_init ();
 #endif /* ifaddr_ipv4_table */
 
-  if (iflist) {
     iflist->cmp = (int (*)(void *, void *))if_cmp_func;
     return;
-  }
 
   memset (&if_master, 0, sizeof if_master);
 }
@@ -882,6 +923,8 @@ if_init (void)
 void
 if_terminate (void)
 {
+//	struct list *iflist;
+
   for (;;)
     {
       struct interface *ifp;

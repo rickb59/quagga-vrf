@@ -53,7 +53,6 @@ ripng_zebra_ipv6_add (struct prefix_ipv6 *p, struct in6_addr *nexthop,
       api.type = ZEBRA_ROUTE_RIPNG;
       api.flags = 0;
       api.message = 0;
-      api.safi = SAFI_UNICAST;
       SET_FLAG (api.message, ZAPI_MESSAGE_NEXTHOP);
       api.nexthop_num = 1;
       api.nexthop = &nexthop;
@@ -78,7 +77,6 @@ ripng_zebra_ipv6_delete (struct prefix_ipv6 *p, struct in6_addr *nexthop,
       api.type = ZEBRA_ROUTE_RIPNG;
       api.flags = 0;
       api.message = 0;
-      api.safi = SAFI_UNICAST;
       SET_FLAG (api.message, ZAPI_MESSAGE_NEXTHOP);
       api.nexthop_num = 1;
       api.nexthop = &nexthop;
@@ -217,8 +215,7 @@ static struct {
   {ZEBRA_ROUTE_CONNECT, 1, "connected"},
   {ZEBRA_ROUTE_STATIC,  1, "static"},
   {ZEBRA_ROUTE_OSPF6,   1, "ospf6"},
-  {ZEBRA_ROUTE_BGP,     2, "bgp"},
-  {ZEBRA_ROUTE_BABEL,   2, "babel"},
+  {ZEBRA_ROUTE_BGP,     1, "bgp"},
   {0, 0, NULL}
 };
 
@@ -290,147 +287,198 @@ DEFUN (no_ripng_redistribute_ripng,
 
 DEFUN (ripng_redistribute_type,
        ripng_redistribute_type_cmd,
-       "redistribute " QUAGGA_REDIST_STR_RIPNGD,
-       "Redistribute\n"
-       QUAGGA_REDIST_HELP_STR_RIPNGD)
+       "redistribute (kernel|connected|static|ospf6|bgp)",
+       "Redistribute information from another routing protocol\n"
+       "Kernel routes\n"
+       "Connected\n"
+       "Static routes\n"
+       "Open Shortest Path First (OSPFv3)\n"
+       "Border Gateway Protocol (BGP)\n")
 {
-  int type;
+  int i;
 
-  type = proto_redistnum(AFI_IP6, argv[0]);
-
-  if (type < 0)
+  for(i = 0; redist_type[i].str; i++) 
     {
-      vty_out(vty, "Invalid type %s%s", argv[0], VTY_NEWLINE);
-      return CMD_WARNING;
+      if (strncmp (redist_type[i].str, argv[0], 
+		   redist_type[i].str_min_len) == 0) 
+	{
+	  zclient_redistribute (ZEBRA_REDISTRIBUTE_ADD, zclient, redist_type[i].type);
+	  return CMD_SUCCESS;
+	}
     }
 
-  zclient_redistribute (ZEBRA_REDISTRIBUTE_ADD, zclient, type);
-  return CMD_SUCCESS;
+  vty_out(vty, "Invalid type %s%s", argv[0],
+	  VTY_NEWLINE);
+
+  return CMD_WARNING;
 }
 
 DEFUN (no_ripng_redistribute_type,
        no_ripng_redistribute_type_cmd,
-       "no redistribute " QUAGGA_REDIST_STR_RIPNGD,
+       "no redistribute (kernel|connected|static|ospf6|bgp)",
        NO_STR
-       "Redistribute\n"
-       QUAGGA_REDIST_HELP_STR_RIPNGD)
+       "Redistribute information from another routing protocol\n"
+       "Kernel routes\n"
+       "Connected\n"
+       "Static routes\n"
+       "Open Shortest Path First (OSPFv3)\n"
+       "Border Gateway Protocol (BGP)\n")
 {
-  int type;
+  int i;
 
-  type = proto_redistnum(AFI_IP6, argv[0]);
-
-  if (type < 0)
+  for (i = 0; redist_type[i].str; i++) 
     {
-      vty_out(vty, "Invalid type %s%s", argv[0], VTY_NEWLINE);
-      return CMD_WARNING;
+      if (strncmp(redist_type[i].str, argv[0], 
+		  redist_type[i].str_min_len) == 0) 
+	{
+	  ripng_redistribute_metric_unset (redist_type[i].type);
+	  ripng_redistribute_routemap_unset (redist_type[i].type);
+	  return ripng_redistribute_unset (redist_type[i].type);
+        }
     }
 
-  ripng_redistribute_metric_unset (type);
-  ripng_redistribute_routemap_unset (type);
-  return ripng_redistribute_unset (type);
+  vty_out(vty, "Invalid type %s%s", argv[0],
+	  VTY_NEWLINE);
+
+  return CMD_WARNING;
 }
 
 
 DEFUN (ripng_redistribute_type_metric,
        ripng_redistribute_type_metric_cmd,
-       "redistribute " QUAGGA_REDIST_STR_RIPNGD " metric <0-16>",
-       "Redistribute\n"
-       QUAGGA_REDIST_HELP_STR_RIPNGD
+       "redistribute (kernel|connected|static|ospf6|bgp) metric <0-16>",
+       "Redistribute information from another routing protocol\n"
+       "Kernel routes\n"
+       "Connected\n"
+       "Static routes\n"
+       "Open Shortest Path First (OSPFv3)\n"
+       "Border Gateway Protocol (BGP)\n"
        "Metric\n"
        "Metric value\n")
 {
-  int type;
+  int i;
   int metric;
 
   metric = atoi (argv[1]);
-  type = proto_redistnum(AFI_IP6, argv[0]);
 
-  if (type < 0)
+  for (i = 0; redist_type[i].str; i++) {
+    if (strncmp(redist_type[i].str, argv[0],
+		redist_type[i].str_min_len) == 0) 
     {
-      vty_out(vty, "Invalid type %s%s", argv[0], VTY_NEWLINE);
-      return CMD_WARNING;
+	ripng_redistribute_metric_set (redist_type[i].type, metric);
+	zclient_redistribute (ZEBRA_REDISTRIBUTE_ADD, zclient, redist_type[i].type);
+	return CMD_SUCCESS;
+      }
     }
 
-  ripng_redistribute_metric_set (type, metric);
-  zclient_redistribute (ZEBRA_REDISTRIBUTE_ADD, zclient, type);
-  return CMD_SUCCESS;
+  vty_out(vty, "Invalid type %s%s", argv[0],
+	  VTY_NEWLINE);
+
+  return CMD_WARNING;
 }
 
 ALIAS (no_ripng_redistribute_type,
        no_ripng_redistribute_type_metric_cmd,
-       "no redistribute " QUAGGA_REDIST_STR_RIPNGD " metric <0-16>",
+       "no redistribute (kernel|connected|static|ospf6|bgp) metric <0-16>",
        NO_STR
-       "Redistribute\n"
-       QUAGGA_REDIST_HELP_STR_RIPNGD
+       "Redistribute information from another routing protocol\n"
+       "Kernel routes\n"
+       "Connected\n"
+       "Static routes\n"
+       "Open Shortest Path First (OSPFv3)\n"
+       "Border Gateway Protocol (BGP)\n"
        "Metric\n"
        "Metric value\n")
 
 DEFUN (ripng_redistribute_type_routemap,
        ripng_redistribute_type_routemap_cmd,
-       "redistribute " QUAGGA_REDIST_STR_RIPNGD " route-map WORD",
-       "Redistribute\n"
-       QUAGGA_REDIST_HELP_STR_RIPNGD
+       "redistribute (kernel|connected|static|ospf6|bgp) route-map WORD",
+       "Redistribute information from another routing protocol\n"
+       "Kernel routes\n"
+       "Connected\n"
+       "Static routes\n"
+       "Open Shortest Path First (OSPFv3)\n"
+       "Border Gateway Protocol (BGP)\n"
        "Route map reference\n"
        "Pointer to route-map entries\n")
 {
-  int type;
+  int i;
 
-  type = proto_redistnum(AFI_IP6, argv[0]);
-
-  if (type < 0)
+  for (i = 0; redist_type[i].str; i++) {
+    if (strncmp(redist_type[i].str, argv[0],
+		redist_type[i].str_min_len) == 0) 
     {
-      vty_out(vty, "Invalid type %s%s", argv[0], VTY_NEWLINE);
-      return CMD_WARNING;
+	ripng_redistribute_routemap_set (redist_type[i].type, argv[1]);
+	zclient_redistribute (ZEBRA_REDISTRIBUTE_ADD, zclient, redist_type[i].type);
+	return CMD_SUCCESS;
+      }
     }
 
-  ripng_redistribute_routemap_set (type, argv[1]);
-  zclient_redistribute (ZEBRA_REDISTRIBUTE_ADD, zclient, type);
- return CMD_SUCCESS;
+  vty_out(vty, "Invalid type %s%s", argv[0],
+	  VTY_NEWLINE);
+
+  return CMD_WARNING;
 }
 
 ALIAS (no_ripng_redistribute_type,
        no_ripng_redistribute_type_routemap_cmd,
-       "no redistribute " QUAGGA_REDIST_STR_RIPNGD " route-map WORD",
+       "no redistribute (kernel|connected|static|ospf6|bgp) route-map WORD",
        NO_STR
-       "Redistribute\n"
-       QUAGGA_REDIST_HELP_STR_RIPNGD
+       "Redistribute information from another routing protocol\n"
+       "Kernel routes\n"
+       "Connected\n"
+       "Static routes\n"
+       "Open Shortest Path First (OSPFv3)\n"
+       "Border Gateway Protocol (BGP)\n"
        "Route map reference\n"
        "Pointer to route-map entries\n")
 
 DEFUN (ripng_redistribute_type_metric_routemap,
        ripng_redistribute_type_metric_routemap_cmd,
-       "redistribute " QUAGGA_REDIST_STR_RIPNGD " metric <0-16> route-map WORD",
-       "Redistribute\n"
-       QUAGGA_REDIST_HELP_STR_RIPNGD
+       "redistribute (kernel|connected|static|ospf6|bgp) metric <0-16> route-map WORD",
+       "Redistribute information from another routing protocol\n"
+       "Kernel routes\n"
+       "Connected\n"
+       "Static routes\n"
+       "Open Shortest Path First (OSPFv3)\n"
+       "Border Gateway Protocol (BGP)\n"
        "Metric\n"
        "Metric value\n"
        "Route map reference\n"
        "Pointer to route-map entries\n")
 {
-  int type;
+  int i;
   int metric;
 
-  type = proto_redistnum(AFI_IP6, argv[0]);
   metric = atoi (argv[1]);
 
-  if (type < 0)
-    {
-      vty_out(vty, "Invalid type %s%s", argv[0], VTY_NEWLINE);
-      return CMD_WARNING;
+  for (i = 0; redist_type[i].str; i++) {
+    if (strncmp(redist_type[i].str, argv[0],
+		redist_type[i].str_min_len) == 0) 
+      {
+	ripng_redistribute_metric_set (redist_type[i].type, metric);
+	ripng_redistribute_routemap_set (redist_type[i].type, argv[2]);
+	zclient_redistribute (ZEBRA_REDISTRIBUTE_ADD, zclient, redist_type[i].type);
+	return CMD_SUCCESS;
+      }
     }
 
-  ripng_redistribute_metric_set (type, metric);
-  ripng_redistribute_routemap_set (type, argv[2]);
-  zclient_redistribute (ZEBRA_REDISTRIBUTE_ADD, zclient, type);
-  return CMD_SUCCESS;
+  vty_out(vty, "Invalid type %s%s", argv[0],
+	  VTY_NEWLINE);
+
+  return CMD_WARNING;
 }
 
 ALIAS (no_ripng_redistribute_type,
        no_ripng_redistribute_type_metric_routemap_cmd,
-       "no redistribute " QUAGGA_REDIST_STR_RIPNGD " metric <0-16> route-map WORD",
+       "no redistribute (kernel|connected|static|ospf6|bgp) metric <0-16> route-map WORD",
        NO_STR
-       "Redistribute\n"
-       QUAGGA_REDIST_HELP_STR_RIPNGD
+       "Redistribute information from another routing protocol\n"
+       "Kernel routes\n"
+       "Connected\n"
+       "Static routes\n"
+       "Open Shortest Path First (OSPFv3)\n"
+       "Border Gateway Protocol (BGP)\n"
        "Route map reference\n"
        "Pointer to route-map entries\n")
 

@@ -19,6 +19,7 @@
  * Boston, MA 02111-1307, USA.  
  */
 
+
 #include <zebra.h>
 
 #include "memory.h"
@@ -27,6 +28,7 @@
 #include "command.h"
 #include "table.h"
 #include "rib.h"
+#include "vrf.h"
 
 #include "zebra/zserv.h"
 
@@ -34,7 +36,7 @@
 static int
 zebra_static_ipv4 (struct vty *vty, int add_cmd, const char *dest_str,
 		   const char *mask_str, const char *gate_str,
-		   const char *flag_str, const char *distance_str)
+		   const char *flag_str, const char *distance_str,  const char *vrf_name)
 {
   int ret;
   u_char distance;
@@ -43,6 +45,7 @@ zebra_static_ipv4 (struct vty *vty, int add_cmd, const char *dest_str,
   struct in_addr mask;
   const char *ifname;
   u_char flag = 0;
+  int id = 0;
   
   ret = str2prefix (dest_str, &p);
   if (ret <= 0)
@@ -51,6 +54,16 @@ zebra_static_ipv4 (struct vty *vty, int add_cmd, const char *dest_str,
       return CMD_WARNING;
     }
 
+  if(vrf_name) {
+		/* find VRF */
+		id = vrf_find_by_name ( vrf_name);
+
+		if(id <0) {
+		    vty_out (vty, "%% VRF not in table%s", VTY_NEWLINE);
+		    return CMD_WARNING;
+		}
+
+  }
   /* Cisco like mask notation. */
   if (mask_str)
     {
@@ -81,9 +94,9 @@ zebra_static_ipv4 (struct vty *vty, int add_cmd, const char *dest_str,
           return CMD_WARNING;
         }
       if (add_cmd)
-        static_add_ipv4 (&p, NULL, NULL, ZEBRA_FLAG_BLACKHOLE, distance, 0);
+        static_add_ipv4 (&p, NULL, NULL, ZEBRA_FLAG_BLACKHOLE, distance, id);
       else
-        static_delete_ipv4 (&p, NULL, NULL, distance, 0);
+        static_delete_ipv4 (&p, NULL, NULL, distance, id);
       return CMD_SUCCESS;
     }
 
@@ -107,9 +120,9 @@ zebra_static_ipv4 (struct vty *vty, int add_cmd, const char *dest_str,
   if (gate_str == NULL)
   {
     if (add_cmd)
-      static_add_ipv4 (&p, NULL, NULL, flag, distance, 0);
+      static_add_ipv4 (&p, NULL, NULL, flag, distance, id);
     else
-      static_delete_ipv4 (&p, NULL, NULL, distance, 0);
+      static_delete_ipv4 (&p, NULL, NULL, distance, id);
 
     return CMD_SUCCESS;
   }
@@ -123,9 +136,9 @@ zebra_static_ipv4 (struct vty *vty, int add_cmd, const char *dest_str,
     ifname = gate_str;
 
   if (add_cmd)
-    static_add_ipv4 (&p, ifname ? NULL : &gate, ifname, flag, distance, 0);
+    static_add_ipv4 (&p, ifname ? NULL : &gate, ifname, flag, distance, id);
   else
-    static_delete_ipv4 (&p, ifname ? NULL : &gate, ifname, distance, 0);
+    static_delete_ipv4 (&p, ifname ? NULL : &gate, ifname, distance, id);
 
   return CMD_SUCCESS;
 }
@@ -141,8 +154,27 @@ DEFUN (ip_route,
        "IP gateway interface name\n"
        "Null interface\n")
 {
-  return zebra_static_ipv4 (vty, 1, argv[0], NULL, argv[1], NULL, NULL);
+  return zebra_static_ipv4 (vty, 1, argv[0], NULL, argv[1], NULL, NULL, NULL);
 }
+
+#if HAVE_VRF
+
+/* Static route configuration.  */
+DEFUN (ip_route_vrf,
+       ip_route_vrf_cmd,
+       "ip route A.B.C.D/M (A.B.C.D|INTERFACE|null0) vrf WORD",
+       IP_STR
+       "Establish static routes\n"
+       "IP destination prefix (e.g. 10.0.0.0/8)\n"
+       "IP gateway address\n"
+       "IP gateway interface name\n"
+       "Null interface\n"
+       "vrf WORD\n")
+{
+  return zebra_static_ipv4 (vty, 1, argv[0], NULL, argv[1], NULL, NULL, argv[2]);
+}
+#endif /* HAVE_VRF */
+
 
 DEFUN (ip_route_flags,
        ip_route_flags_cmd,
@@ -155,7 +187,7 @@ DEFUN (ip_route_flags,
        "Emit an ICMP unreachable when matched\n"
        "Silently discard pkts when matched\n")
 {
-  return zebra_static_ipv4 (vty, 1, argv[0], NULL, argv[1], argv[2], NULL);
+  return zebra_static_ipv4 (vty, 1, argv[0], NULL, argv[1], argv[2], NULL, NULL);
 }
 
 DEFUN (ip_route_flags2,
@@ -167,7 +199,7 @@ DEFUN (ip_route_flags2,
        "Emit an ICMP unreachable when matched\n"
        "Silently discard pkts when matched\n")
 {
-  return zebra_static_ipv4 (vty, 1, argv[0], NULL, NULL, argv[1], NULL);
+  return zebra_static_ipv4 (vty, 1, argv[0], NULL, NULL, argv[1], NULL, NULL);
 }
 
 /* Mask as A.B.C.D format.  */
@@ -182,7 +214,7 @@ DEFUN (ip_route_mask,
        "IP gateway interface name\n"
        "Null interface\n")
 {
-  return zebra_static_ipv4 (vty, 1, argv[0], argv[1], argv[2], NULL, NULL);
+  return zebra_static_ipv4 (vty, 1, argv[0], argv[1], argv[2], NULL, NULL, NULL);
 }
 
 DEFUN (ip_route_mask_flags,
@@ -197,7 +229,7 @@ DEFUN (ip_route_mask_flags,
        "Emit an ICMP unreachable when matched\n"
        "Silently discard pkts when matched\n")
 {
-  return zebra_static_ipv4 (vty, 1, argv[0], argv[1], argv[2], argv[3], NULL);
+  return zebra_static_ipv4 (vty, 1, argv[0], argv[1], argv[2], argv[3], NULL, NULL);
 }
 
 DEFUN (ip_route_mask_flags2,
@@ -210,7 +242,7 @@ DEFUN (ip_route_mask_flags2,
        "Emit an ICMP unreachable when matched\n"
        "Silently discard pkts when matched\n")
 {
-  return zebra_static_ipv4 (vty, 1, argv[0], argv[1], NULL, argv[2], NULL);
+  return zebra_static_ipv4 (vty, 1, argv[0], argv[1], NULL, argv[2], NULL, NULL);
 }
 
 /* Distance option value.  */
@@ -225,7 +257,7 @@ DEFUN (ip_route_distance,
        "Null interface\n"
        "Distance value for this route\n")
 {
-  return zebra_static_ipv4 (vty, 1, argv[0], NULL, argv[1], NULL, argv[2]);
+  return zebra_static_ipv4 (vty, 1, argv[0], NULL, argv[1], NULL, argv[2], NULL);
 }
 
 DEFUN (ip_route_flags_distance,
@@ -240,7 +272,7 @@ DEFUN (ip_route_flags_distance,
        "Silently discard pkts when matched\n"
        "Distance value for this route\n")
 {
-  return zebra_static_ipv4 (vty, 1, argv[0], NULL, argv[1], argv[2], argv[3]);
+  return zebra_static_ipv4 (vty, 1, argv[0], NULL, argv[1], argv[2], argv[3], NULL);
 }
 
 DEFUN (ip_route_flags_distance2,
@@ -253,7 +285,7 @@ DEFUN (ip_route_flags_distance2,
        "Silently discard pkts when matched\n"
        "Distance value for this route\n")
 {
-  return zebra_static_ipv4 (vty, 1, argv[0], NULL, NULL, argv[1], argv[2]);
+  return zebra_static_ipv4 (vty, 1, argv[0], NULL, NULL, argv[1], argv[2], NULL);
 }
 
 DEFUN (ip_route_mask_distance,
@@ -268,7 +300,7 @@ DEFUN (ip_route_mask_distance,
        "Null interface\n"
        "Distance value for this route\n")
 {
-  return zebra_static_ipv4 (vty, 1, argv[0], argv[1], argv[2], NULL, argv[3]);
+  return zebra_static_ipv4 (vty, 1, argv[0], argv[1], argv[2], NULL, argv[3], NULL);
 }
 
 DEFUN (ip_route_mask_flags_distance,
@@ -284,7 +316,7 @@ DEFUN (ip_route_mask_flags_distance,
        "Emit an ICMP unreachable when matched\n"
        "Silently discard pkts when matched\n")
 {
-  return zebra_static_ipv4 (vty, 1, argv[0], argv[1], argv[2], argv[3], argv[4]);
+  return zebra_static_ipv4 (vty, 1, argv[0], argv[1], argv[2], argv[3], argv[4], NULL);
 }
 
 DEFUN (ip_route_mask_flags_distance2,
@@ -298,7 +330,7 @@ DEFUN (ip_route_mask_flags_distance2,
        "Emit an ICMP unreachable when matched\n"
        "Silently discard pkts when matched\n")
 {
-  return zebra_static_ipv4 (vty, 1, argv[0], argv[1], NULL, argv[2], argv[3]);
+  return zebra_static_ipv4 (vty, 1, argv[0], argv[1], NULL, argv[2], argv[3], NULL);
 }
 
 DEFUN (no_ip_route, 
@@ -312,8 +344,26 @@ DEFUN (no_ip_route,
        "IP gateway interface name\n"
        "Null interface\n")
 {
-  return zebra_static_ipv4 (vty, 0, argv[0], NULL, argv[1], NULL, NULL);
+  return zebra_static_ipv4 (vty, 0, argv[0], NULL, argv[1], NULL, NULL, NULL);
 }
+
+#if HAVE_VRF
+DEFUN (no_ip_route_vrf,
+       no_ip_route_vrf_cmd,
+       "no ip route A.B.C.D/M (A.B.C.D|INTERFACE|null0) vrf WORD",
+       NO_STR
+       IP_STR
+       "Establish static routes\n"
+       "IP destination prefix (e.g. 10.0.0.0/8)\n"
+       "IP gateway address\n"
+       "IP gateway interface name\n"
+       "Null interface\n"
+       "VRF NAME\n")
+{
+  return zebra_static_ipv4 (vty, 0, argv[0], NULL, argv[1], NULL, NULL, argv[2]);
+}
+
+#endif /* HAVE_VRF */
 
 ALIAS (no_ip_route,
        no_ip_route_flags_cmd,
@@ -337,7 +387,7 @@ DEFUN (no_ip_route_flags2,
        "Emit an ICMP unreachable when matched\n"
        "Silently discard pkts when matched\n")
 {
-  return zebra_static_ipv4 (vty, 0, argv[0], NULL, NULL, NULL, NULL);
+  return zebra_static_ipv4 (vty, 0, argv[0], NULL, NULL, NULL, NULL, NULL);
 }
 
 DEFUN (no_ip_route_mask,
@@ -352,7 +402,7 @@ DEFUN (no_ip_route_mask,
        "IP gateway interface name\n"
        "Null interface\n")
 {
-  return zebra_static_ipv4 (vty, 0, argv[0], argv[1], argv[2], NULL, NULL);
+  return zebra_static_ipv4 (vty, 0, argv[0], argv[1], argv[2], NULL, NULL, NULL);
 }
 
 ALIAS (no_ip_route_mask,
@@ -379,7 +429,7 @@ DEFUN (no_ip_route_mask_flags2,
        "Emit an ICMP unreachable when matched\n"
        "Silently discard pkts when matched\n")
 {
-  return zebra_static_ipv4 (vty, 0, argv[0], argv[1], NULL, NULL, NULL);
+  return zebra_static_ipv4 (vty, 0, argv[0], argv[1], NULL, NULL, NULL, NULL);
 }
 
 DEFUN (no_ip_route_distance,
@@ -394,7 +444,7 @@ DEFUN (no_ip_route_distance,
        "Null interface\n"
        "Distance value for this route\n")
 {
-  return zebra_static_ipv4 (vty, 0, argv[0], NULL, argv[1], NULL, argv[2]);
+  return zebra_static_ipv4 (vty, 0, argv[0], NULL, argv[1], NULL, argv[2], NULL);
 }
 
 DEFUN (no_ip_route_flags_distance,
@@ -410,7 +460,7 @@ DEFUN (no_ip_route_flags_distance,
        "Silently discard pkts when matched\n"
        "Distance value for this route\n")
 {
-  return zebra_static_ipv4 (vty, 0, argv[0], NULL, argv[1], argv[2], argv[3]);
+  return zebra_static_ipv4 (vty, 0, argv[0], NULL, argv[1], argv[2], argv[3], NULL);
 }
 
 DEFUN (no_ip_route_flags_distance2,
@@ -424,7 +474,7 @@ DEFUN (no_ip_route_flags_distance2,
        "Silently discard pkts when matched\n"
        "Distance value for this route\n")
 {
-  return zebra_static_ipv4 (vty, 0, argv[0], NULL, NULL, argv[1], argv[2]);
+  return zebra_static_ipv4 (vty, 0, argv[0], NULL, NULL, argv[1], argv[2], NULL);
 }
 
 DEFUN (no_ip_route_mask_distance,
@@ -440,7 +490,7 @@ DEFUN (no_ip_route_mask_distance,
        "Null interface\n"
        "Distance value for this route\n")
 {
-  return zebra_static_ipv4 (vty, 0, argv[0], argv[1], argv[2], NULL, argv[3]);
+  return zebra_static_ipv4 (vty, 0, argv[0], argv[1], argv[2], NULL, argv[3], NULL);
 }
 
 DEFUN (no_ip_route_mask_flags_distance,
@@ -457,7 +507,7 @@ DEFUN (no_ip_route_mask_flags_distance,
        "Silently discard pkts when matched\n"
        "Distance value for this route\n")
 {
-  return zebra_static_ipv4 (vty, 0, argv[0], argv[1], argv[2], argv[3], argv[4]);
+  return zebra_static_ipv4 (vty, 0, argv[0], argv[1], argv[2], argv[3], argv[4], NULL);
 }
 
 DEFUN (no_ip_route_mask_flags_distance2,
@@ -472,7 +522,7 @@ DEFUN (no_ip_route_mask_flags_distance2,
        "Silently discard pkts when matched\n"
        "Distance value for this route\n")
 {
-  return zebra_static_ipv4 (vty, 0, argv[0], argv[1], NULL, argv[2], argv[3]);
+  return zebra_static_ipv4 (vty, 0, argv[0], argv[1], NULL, argv[2], argv[3], NULL);
 }
 
 char *proto_rm[AFI_MAX][ZEBRA_ROUTE_MAX+1];	/* "any" == ZEBRA_ROUTE_MAX */
@@ -556,7 +606,6 @@ vty_show_ip_route_detail (struct vty *vty, struct route_node *rn)
 #define ONE_WEEK_SECOND 60*60*24*7
       if (rib->type == ZEBRA_ROUTE_RIP
 	  || rib->type == ZEBRA_ROUTE_OSPF
-	  || rib->type == ZEBRA_ROUTE_BABEL
 	  || rib->type == ZEBRA_ROUTE_ISIS
 	  || rib->type == ZEBRA_ROUTE_BGP)
 	{
@@ -664,6 +713,8 @@ vty_show_ip_route_detail (struct vty *vty, struct route_node *rn)
       vty_out (vty, "%s", VTY_NEWLINE);
     }
 }
+
+
 
 static void
 vty_show_ip_route (struct vty *vty, struct route_node *rn, struct rib *rib)
@@ -775,7 +826,6 @@ vty_show_ip_route (struct vty *vty, struct route_node *rn, struct rib *rib)
 
       if (rib->type == ZEBRA_ROUTE_RIP
 	  || rib->type == ZEBRA_ROUTE_OSPF
-	  || rib->type == ZEBRA_ROUTE_BABEL
 	  || rib->type == ZEBRA_ROUTE_ISIS
 	  || rib->type == ZEBRA_ROUTE_BGP)
 	{
@@ -800,9 +850,15 @@ vty_show_ip_route (struct vty *vty, struct route_node *rn, struct rib *rib)
 		     tm->tm_yday/7,
 		     tm->tm_yday - ((tm->tm_yday/7) * 7), tm->tm_hour);
 	}
+      if(rib->vrf_id)
+    	  vty_out (vty, " vrf %s", (vrf_lookup(rib->vrf_id))->name);
       vty_out (vty, "%s", VTY_NEWLINE);
     }
 }
+
+#define SHOW_ROUTE_V4_HEADER "Codes: K - kernel route, C - connected, " \
+  "S - static, R - RIP, O - OSPF,%s       I - ISIS, B - BGP, " \
+  "> - selected route, * - FIB route%s%s"
 
 DEFUN (show_ip_route,
        show_ip_route_cmd,
@@ -826,13 +882,58 @@ DEFUN (show_ip_route,
       {
 	if (first)
 	  {
-	    vty_out (vty, SHOW_ROUTE_V4_HEADER);
+	    vty_out (vty, SHOW_ROUTE_V4_HEADER, VTY_NEWLINE, VTY_NEWLINE,
+		     VTY_NEWLINE);
 	    first = 0;
 	  }
 	vty_show_ip_route (vty, rn, rib);
       }
   return CMD_SUCCESS;
 }
+
+#if HAVE_VRF
+DEFUN (show_ip_route_vrf,
+       show_ip_route_vrf_cmd,
+       "show ip route vrf WORD",
+       SHOW_STR
+       IP_STR
+       "IP routing table\n"
+       "vrf WORD\n")
+{
+  struct route_table *table;
+  struct route_node *rn;
+  struct rib *rib;
+  int first = 1;
+  int id = 0;
+
+
+  /* find VRF */
+  id = vrf_find_by_name ( argv[0]);
+
+  if(id <0) {
+      vty_out (vty, "%% VRF not in table%s", VTY_NEWLINE);
+	  return CMD_WARNING;
+  }
+
+  table = vrf_table (AFI_IP, SAFI_UNICAST, id);
+  if (! table)
+    return CMD_SUCCESS;
+
+  /* Show all IPv4 routes. */
+  for (rn = route_top (table); rn; rn = route_next (rn))
+    for (rib = rn->info; rib; rib = rib->next)
+      {
+	if (first)
+	  {
+	    vty_out (vty, SHOW_ROUTE_V4_HEADER, VTY_NEWLINE, VTY_NEWLINE,
+		     VTY_NEWLINE);
+	    first = 0;
+	  }
+	vty_show_ip_route (vty, rn, rib);
+      }
+  return CMD_SUCCESS;
+}
+#endif /* HAVE_VRF */
 
 DEFUN (show_ip_route_prefix_longer,
        show_ip_route_prefix_longer_cmd,
@@ -868,7 +969,8 @@ DEFUN (show_ip_route_prefix_longer,
 	{
 	  if (first)
 	    {
-	      vty_out (vty, SHOW_ROUTE_V4_HEADER);
+	      vty_out (vty, SHOW_ROUTE_V4_HEADER, VTY_NEWLINE,
+		       VTY_NEWLINE, VTY_NEWLINE);
 	      first = 0;
 	    }
 	  vty_show_ip_route (vty, rn, rib);
@@ -906,7 +1008,8 @@ DEFUN (show_ip_route_supernets,
 	  {
 	    if (first)
 	      {
-		vty_out (vty, SHOW_ROUTE_V4_HEADER);
+		vty_out (vty, SHOW_ROUTE_V4_HEADER, VTY_NEWLINE,
+			 VTY_NEWLINE, VTY_NEWLINE);
 		first = 0;
 	      }
 	    vty_show_ip_route (vty, rn, rib);
@@ -917,11 +1020,17 @@ DEFUN (show_ip_route_supernets,
 
 DEFUN (show_ip_route_protocol,
        show_ip_route_protocol_cmd,
-       "show ip route " QUAGGA_IP_REDIST_STR_ZEBRA,
+       "show ip route (bgp|connected|isis|kernel|ospf|rip|static)",
        SHOW_STR
        IP_STR
        "IP routing table\n"
-       QUAGGA_IP_REDIST_HELP_STR_ZEBRA)
+       "Border Gateway Protocol (BGP)\n"
+       "Connected\n"
+       "ISO IS-IS (ISIS)\n"
+       "Kernel\n"
+       "Open Shortest Path First (OSPF)\n"
+       "Routing Information Protocol (RIP)\n"
+       "Static routes\n")
 {
   int type;
   struct route_table *table;
@@ -929,8 +1038,21 @@ DEFUN (show_ip_route_protocol,
   struct rib *rib;
   int first = 1;
 
-  type = proto_redistnum (AFI_IP, argv[0]);
-  if (type < 0)
+  if (strncmp (argv[0], "b", 1) == 0)
+    type = ZEBRA_ROUTE_BGP;
+  else if (strncmp (argv[0], "c", 1) == 0)
+    type = ZEBRA_ROUTE_CONNECT;
+  else if (strncmp (argv[0], "k", 1) ==0)
+    type = ZEBRA_ROUTE_KERNEL;
+  else if (strncmp (argv[0], "o", 1) == 0)
+    type = ZEBRA_ROUTE_OSPF;
+  else if (strncmp (argv[0], "i", 1) == 0)
+    type = ZEBRA_ROUTE_ISIS;
+  else if (strncmp (argv[0], "r", 1) == 0)
+    type = ZEBRA_ROUTE_RIP;
+  else if (strncmp (argv[0], "s", 1) == 0)
+    type = ZEBRA_ROUTE_STATIC;
+  else 
     {
       vty_out (vty, "Unknown route type%s", VTY_NEWLINE);
       return CMD_WARNING;
@@ -947,7 +1069,8 @@ DEFUN (show_ip_route_protocol,
 	{
 	  if (first)
 	    {
-	      vty_out (vty, SHOW_ROUTE_V4_HEADER);
+	      vty_out (vty, SHOW_ROUTE_V4_HEADER,
+		       VTY_NEWLINE, VTY_NEWLINE, VTY_NEWLINE);
 	      first = 0;
 	    }
 	  vty_show_ip_route (vty, rn, rib);
@@ -1534,7 +1657,6 @@ vty_show_ipv6_route_detail (struct vty *vty, struct route_node *rn)
 #define ONE_WEEK_SECOND 60*60*24*7
       if (rib->type == ZEBRA_ROUTE_RIPNG
 	  || rib->type == ZEBRA_ROUTE_OSPF6
-	  || rib->type == ZEBRA_ROUTE_BABEL
 	  || rib->type == ZEBRA_ROUTE_ISIS
 	  || rib->type == ZEBRA_ROUTE_BGP)
 	{
@@ -1714,7 +1836,6 @@ vty_show_ipv6_route (struct vty *vty, struct route_node *rn,
       
       if (rib->type == ZEBRA_ROUTE_RIPNG
 	  || rib->type == ZEBRA_ROUTE_OSPF6
-	  || rib->type == ZEBRA_ROUTE_BABEL
 	  || rib->type == ZEBRA_ROUTE_ISIS
 	  || rib->type == ZEBRA_ROUTE_BGP)
 	{
@@ -1743,6 +1864,8 @@ vty_show_ipv6_route (struct vty *vty, struct route_node *rn,
     }
 }
 
+#define SHOW_ROUTE_V6_HEADER "Codes: K - kernel route, C - connected, S - static, R - RIPng, O - OSPFv3,%s       I - ISIS, B - BGP, * - FIB route.%s%s"
+
 DEFUN (show_ipv6_route,
        show_ipv6_route_cmd,
        "show ipv6 route",
@@ -1765,7 +1888,7 @@ DEFUN (show_ipv6_route,
       {
 	if (first)
 	  {
-	    vty_out (vty, SHOW_ROUTE_V6_HEADER);
+	    vty_out (vty, SHOW_ROUTE_V6_HEADER, VTY_NEWLINE, VTY_NEWLINE, VTY_NEWLINE);
 	    first = 0;
 	  }
 	vty_show_ipv6_route (vty, rn, rib);
@@ -1807,7 +1930,7 @@ DEFUN (show_ipv6_route_prefix_longer,
 	{
 	  if (first)
 	    {
-	      vty_out (vty, SHOW_ROUTE_V6_HEADER);
+	      vty_out (vty, SHOW_ROUTE_V6_HEADER, VTY_NEWLINE, VTY_NEWLINE, VTY_NEWLINE);
 	      first = 0;
 	    }
 	  vty_show_ipv6_route (vty, rn, rib);
@@ -1817,11 +1940,17 @@ DEFUN (show_ipv6_route_prefix_longer,
 
 DEFUN (show_ipv6_route_protocol,
        show_ipv6_route_protocol_cmd,
-       "show ipv6 route " QUAGGA_IP6_REDIST_STR_ZEBRA,
+       "show ipv6 route (bgp|connected|isis|kernel|ospf6|ripng|static)",
        SHOW_STR
        IP_STR
        "IP routing table\n"
-	QUAGGA_IP6_REDIST_HELP_STR_ZEBRA)
+       "Border Gateway Protocol (BGP)\n"
+       "Connected\n"
+       "ISO IS-IS (ISIS)\n"
+       "Kernel\n"
+       "Open Shortest Path First (OSPFv3)\n"
+       "Routing Information Protocol (RIPng)\n"
+       "Static routes\n")
 {
   int type;
   struct route_table *table;
@@ -1829,8 +1958,21 @@ DEFUN (show_ipv6_route_protocol,
   struct rib *rib;
   int first = 1;
 
-  type = proto_redistnum (AFI_IP6, argv[0]);
-  if (type < 0)
+  if (strncmp (argv[0], "b", 1) == 0)
+    type = ZEBRA_ROUTE_BGP;
+  else if (strncmp (argv[0], "c", 1) == 0)
+    type = ZEBRA_ROUTE_CONNECT;
+  else if (strncmp (argv[0], "k", 1) ==0)
+    type = ZEBRA_ROUTE_KERNEL;
+  else if (strncmp (argv[0], "o", 1) == 0)
+    type = ZEBRA_ROUTE_OSPF6;
+  else if (strncmp (argv[0], "i", 1) == 0)
+    type = ZEBRA_ROUTE_ISIS;
+  else if (strncmp (argv[0], "r", 1) == 0)
+    type = ZEBRA_ROUTE_RIPNG;
+  else if (strncmp (argv[0], "s", 1) == 0)
+    type = ZEBRA_ROUTE_STATIC;
+  else 
     {
       vty_out (vty, "Unknown route type%s", VTY_NEWLINE);
       return CMD_WARNING;
@@ -1847,7 +1989,7 @@ DEFUN (show_ipv6_route_protocol,
 	{
 	  if (first)
 	    {
-	      vty_out (vty, SHOW_ROUTE_V6_HEADER);
+	      vty_out (vty, SHOW_ROUTE_V6_HEADER, VTY_NEWLINE, VTY_NEWLINE, VTY_NEWLINE);
 	      first = 0;
 	    }
 	  vty_show_ipv6_route (vty, rn, rib);
@@ -1950,80 +2092,6 @@ DEFUN (show_ipv6_route_summary,
 
   return CMD_SUCCESS;
 }
-
-/*
- * Show IP mroute command to dump the BGP Multicast 
- * routing table
- */
-DEFUN (show_ip_mroute,
-       show_ip_mroute_cmd,
-       "show ip mroute",
-       SHOW_STR
-       IP_STR
-       "IP Multicast routing table\n")
-{
-  struct route_table *table;
-  struct route_node *rn;
-  struct rib *rib;
-  int first = 1;
-
-  table = vrf_table (AFI_IP, SAFI_MULTICAST, 0);
-  if (! table)
-    return CMD_SUCCESS;
-
-  /* Show all IPv4 routes. */
-  for (rn = route_top (table); rn; rn = route_next (rn))
-    for (rib = rn->info; rib; rib = rib->next)
-      {
-       if (first)
-         {
-	   vty_out (vty, SHOW_ROUTE_V4_HEADER);
-           first = 0;
-         }
-       vty_show_ip_route (vty, rn, rib);
-      }
-  return CMD_SUCCESS;
-}
-
-/*
- * Show IPv6 mroute command.Used to dump
- * the Multicast routing table.
- */
-
-DEFUN (show_ipv6_mroute,
-       show_ipv6_mroute_cmd,
-       "show ipv6 mroute",
-       SHOW_STR
-       IP_STR
-       "IPv6 Multicast routing table\n")
-{
-  struct route_table *table;
-  struct route_node *rn;
-  struct rib *rib;
-  int first = 1;
-
-  table = vrf_table (AFI_IP6, SAFI_MULTICAST, 0);
-  if (! table)
-    return CMD_SUCCESS;
-
-  /* Show all IPv6 route. */
-  for (rn = route_top (table); rn; rn = route_next (rn))
-    for (rib = rn->info; rib; rib = rib->next)
-      {
-       if (first)
-         {
-	   vty_out (vty, SHOW_ROUTE_V6_HEADER);
-           first = 0;
-         }
-       vty_show_ipv6_route (vty, rn, rib);
-      }
-  return CMD_SUCCESS;
-}
-
-
-
-
-
 
 /* Write IPv6 static route configuration. */
 static int
@@ -2167,10 +2235,6 @@ zebra_vty_init (void)
   install_element (ENABLE_NODE, &show_ip_route_supernets_cmd);
   install_element (ENABLE_NODE, &show_ip_route_summary_cmd);
 
-  install_element (VIEW_NODE, &show_ip_mroute_cmd);
-  install_element (ENABLE_NODE, &show_ip_mroute_cmd);
-
-
 #ifdef HAVE_IPV6
   install_element (CONFIG_NODE, &ipv6_route_cmd);
   install_element (CONFIG_NODE, &ipv6_route_flags_cmd);
@@ -2200,8 +2264,11 @@ zebra_vty_init (void)
   install_element (ENABLE_NODE, &show_ipv6_route_prefix_cmd);
   install_element (ENABLE_NODE, &show_ipv6_route_prefix_longer_cmd);
   install_element (ENABLE_NODE, &show_ipv6_route_summary_cmd);
-
-  install_element (VIEW_NODE, &show_ipv6_mroute_cmd);
-  install_element (ENABLE_NODE, &show_ipv6_mroute_cmd);
 #endif /* HAVE_IPV6 */
+
+#ifdef HAVE_VRF
+  install_element (ENABLE_NODE, &show_ip_route_vrf_cmd);
+  install_element (CONFIG_NODE, &ip_route_vrf_cmd);
+  install_element (CONFIG_NODE, &no_ip_route_vrf_cmd);
 }
+#endif

@@ -127,7 +127,7 @@ parse_test (struct test_segment *t)
 
      
 int
-main (void)
+main (void, const char *ZEBRA_VTYSH_PATH)
 {
   int i = 0;
   ecommunity_init();

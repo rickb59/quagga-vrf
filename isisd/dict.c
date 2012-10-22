@@ -15,10 +15,16 @@
  * contain a copyright notice related to this source.
  */
 
+#include <stdlib.h>
+#include <stddef.h>
 #include "zebra.h"
 #include "zassert.h"
-#include "memory.h"
+#define DICT_IMPLEMENTATION
 #include "dict.h"
+
+#ifdef KAZLIB_RCSID
+static const char rcsid[] = "Id: dict.c,v 1.40.2.7 2000/11/13 01:36:44 kaz";
+#endif
 
 /*
  * These macros provide short convenient names for structure members,
@@ -237,7 +243,7 @@ static int verify_dict_has_node(dnode_t *nil, dnode_t *root, dnode_t *node)
 
 dict_t *dict_create(dictcount_t maxcount, dict_comp_t comp)
 {
-    dict_t *new = XCALLOC(MTYPE_ISIS_DICT, sizeof(dict_t));
+    dict_t *new = malloc(sizeof *new);
 
     if (new) {
 	new->compare = comp;
@@ -278,7 +284,7 @@ void dict_set_allocator(dict_t *dict, dnode_alloc_t al,
 void dict_destroy(dict_t *dict)
 {
     assert (dict_isempty(dict));
-    XFREE(MTYPE_ISIS_DICT, dict);
+    free(dict);
 }
 
 /*
@@ -301,6 +307,9 @@ void dict_free_nodes(dict_t *dict)
 
 void dict_free(dict_t *dict)
 {
+#ifdef KAZLIB_OBSOLESCENT_DEBUG
+    assert ("call to obsolescent function dict_free()" && 0);
+#endif
     dict_free_nodes(dict);
 }
 
@@ -937,17 +946,17 @@ int dict_contains(dict_t *dict, dnode_t *node)
 
 static dnode_t *dnode_alloc(void *context)
 {
-    return XCALLOC(MTYPE_ISIS_DICT_NODE, sizeof(dnode_t));
+    return malloc(sizeof *dnode_alloc(NULL));
 }
 
 static void dnode_free(dnode_t *node, void *context)
 {
-    XFREE(MTYPE_ISIS_DICT_NODE, node);
+    free(node);
 }
 
 dnode_t *dnode_create(void *data)
 {
-    dnode_t *new = XCALLOC(MTYPE_ISIS_DICT_NODE, sizeof(dnode_t));
+    dnode_t *new = malloc(sizeof *new);
     if (new) {
 	new->data = data;
 	new->parent = NULL;
@@ -969,7 +978,7 @@ dnode_t *dnode_init(dnode_t *dnode, void *data)
 void dnode_destroy(dnode_t *dnode)
 {
     assert (!dnode_is_in_a_dict(dnode));
-    XFREE(MTYPE_ISIS_DICT_NODE, dnode);
+    free(dnode);
 }
 
 void *dnode_get(dnode_t *dnode)
@@ -1223,7 +1232,7 @@ static int comparef(const void *key1, const void *key2)
 static char *dupstring(char *str)
 {
     int sz = strlen(str) + 1;
-    char *new = XCALLOC(MTYPE_ISIS_TMP, sz);
+    char *new = malloc(sz);
     if (new)
 	memcpy(new, str, sz);
     return new;
@@ -1338,7 +1347,7 @@ int main(void)
 	"s                      switch to non-functioning allocator\n"
 	"q                      quit";
 
-    for (i = 0; i < 10; i++)
+    for (i = 0; i < sizeof darray / sizeof *darray; i++)
 	dict_init(&darray[i], DICTCOUNT_T_MAX, comparef);
 
     for (;;) {

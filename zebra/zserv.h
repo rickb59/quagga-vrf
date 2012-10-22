@@ -88,25 +88,33 @@ struct zebra_t
 
 /* Prototypes. */
 extern void zebra_init (void);
+
+
 extern void zebra_if_init (void);
-extern void zebra_zserv_socket_init (char *path);
+extern void zebra_zserv_socket_init (void);
 extern void hostinfo_get (void);
 extern void rib_init (void);
 extern void interface_list (void);
+//extern void interface_list (int vrf_id);
+
 extern void kernel_init (void);
+//extern void kernel_init (int vrf_id);
+
 extern void route_read (void);
+//extern void route_read (int vrf_id);
+
 extern void zebra_route_map_init (void);
 extern void zebra_snmp_init (void);
 extern void zebra_vty_init (void);
 
-extern int zsend_interface_add (struct zserv *, struct interface *);
-extern int zsend_interface_delete (struct zserv *, struct interface *);
-extern int zsend_interface_address (int, struct zserv *, struct interface *,
+extern int zsend_interface_add (u_short, struct zserv *, struct interface *);
+extern int zsend_interface_delete (u_short vrf_id, struct zserv *, struct interface *);
+extern int zsend_interface_address (int, u_short, struct zserv *, struct interface *,
                                     struct connected *);
-extern int zsend_interface_update (int, struct zserv *, struct interface *);
-extern int zsend_route_multipath (int, struct zserv *, struct prefix *, 
+extern int zsend_interface_update (int, u_short, struct zserv *, struct interface *);
+extern int zsend_route_multipath (int, u_short, struct zserv *, struct prefix *,
                                   struct rib *);
-extern int zsend_router_id_update(struct zserv *, struct prefix *);
+extern int zsend_router_id_update(u_short, struct zserv *, struct prefix *);
 
 extern pid_t pid;
 

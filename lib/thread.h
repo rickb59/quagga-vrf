@@ -1,6 +1,5 @@
 /* Thread management routine header.
  * Copyright (C) 1998 Kunihiro Ishiguro
- * Portions Copyright (c) 2008 Everton da Silva Marques <everton.marques@gmail.com>
  *
  * This file is part of GNU Zebra.
  *
@@ -22,8 +21,6 @@
 
 #ifndef _ZEBRA_THREAD_H
 #define _ZEBRA_THREAD_H
-
-#include <zebra.h>
 
 struct rusage_t
 {
@@ -138,12 +135,6 @@ enum quagga_clkid {
   do { \
     if (! thread) \
       thread = thread_add_timer (master, func, arg, time); \
-  } while (0)
-
-#define THREAD_TIMER_MSEC_ON(master,thread,func,arg,time) \
-  do { \
-    if (! thread) \
-      thread = thread_add_timer_msec (master, func, arg, time); \
   } while (0)
 
 #define THREAD_OFF(thread) \

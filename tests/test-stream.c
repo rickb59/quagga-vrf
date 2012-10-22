@@ -28,7 +28,7 @@ print_stream (struct stream *s)
 }
 
 int
-main (void)
+main (void, const char *ZEBRA_VTYSH_PATH)
 {
   struct stream *s;
   

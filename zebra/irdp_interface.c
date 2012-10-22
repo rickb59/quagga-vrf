@@ -29,7 +29,7 @@
  */
 
 /* 
- * Thanks to Jens Låås at Swedish University of Agricultural Sciences
+ * Thanks to Jens Lï¿½ï¿½s at Swedish University of Agricultural Sciences
  * for reviewing and tests.
  */
 
@@ -99,10 +99,13 @@ if_group (struct interface *ifp,
 	  u_int32_t group, 
 	  int add_leave)
 {
+  struct zebra_if *zi;
   struct ip_mreq m;
   struct prefix *p;
   int ret;
   char b1[INET_ADDRSTRLEN];
+
+  zi = ifp->info;
 
   memset (&m, 0, sizeof (m));
   m.imr_multiaddr.s_addr = htonl (group);
@@ -781,6 +784,23 @@ irdp_init ()
   install_element (INTERFACE_NODE, &ip_irdp_debug_misc_cmd);
   install_element (INTERFACE_NODE, &ip_irdp_debug_packet_cmd);
   install_element (INTERFACE_NODE, &ip_irdp_debug_disable_cmd);
+
+  install_element (SUB_INTERFACE_NODE, &ip_irdp_broadcast_cmd);
+  install_element (SUB_INTERFACE_NODE, &ip_irdp_multicast_cmd);
+  install_element (SUB_INTERFACE_NODE, &no_ip_irdp_cmd);
+  install_element (SUB_INTERFACE_NODE, &ip_irdp_shutdown_cmd);
+  install_element (SUB_INTERFACE_NODE, &no_ip_irdp_shutdown_cmd);
+  install_element (SUB_INTERFACE_NODE, &ip_irdp_holdtime_cmd);
+  install_element (SUB_INTERFACE_NODE, &ip_irdp_maxadvertinterval_cmd);
+  install_element (SUB_INTERFACE_NODE, &ip_irdp_minadvertinterval_cmd);
+  install_element (SUB_INTERFACE_NODE, &ip_irdp_preference_cmd);
+  install_element (SUB_INTERFACE_NODE, &ip_irdp_address_preference_cmd);
+  install_element (SUB_INTERFACE_NODE, &no_ip_irdp_address_preference_cmd);
+
+  install_element (SUB_INTERFACE_NODE, &ip_irdp_debug_messages_cmd);
+  install_element (SUB_INTERFACE_NODE, &ip_irdp_debug_misc_cmd);
+  install_element (SUB_INTERFACE_NODE, &ip_irdp_debug_packet_cmd);
+  install_element (SUB_INTERFACE_NODE, &ip_irdp_debug_disable_cmd);
 }
 
 #endif /* HAVE_IRDP */

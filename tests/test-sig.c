@@ -40,7 +40,7 @@ struct thread_master *master;
 struct thread t;
 
 int
-main (void)
+main (void, const char *ZEBRA_VTYSH_PATH)
 {
   master = thread_master_create ();
   signal_init (master, Q_SIGC(sigs), sigs);

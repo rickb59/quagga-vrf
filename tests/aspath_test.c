@@ -1254,7 +1254,7 @@ attr_test (struct aspath_tests *t)
 }
 
 int
-main (void)
+main (void, const char *ZEBRA_VTYSH_PATH)
 {
   int i = 0;
   bgp_master_init ();

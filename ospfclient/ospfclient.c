@@ -264,7 +264,7 @@ static int usage()
 }
 
 int
-main (int argc, char *argv[])
+main (int argc, char *argv[], const char *ZEBRA_VTYSH_PATH)
 {
   struct thread thread;
 

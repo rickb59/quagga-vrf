@@ -299,6 +299,7 @@ DEFUN (distribute_list_all,
        "Filter outgoing routing updates\n")
 {
   enum distribute_type type;
+  struct distribute *dist;
 
   /* Check of distribute list type. */
   if (strncmp (argv[1], "i", 1) == 0)
@@ -313,7 +314,7 @@ DEFUN (distribute_list_all,
     }
 
   /* Get interface name corresponding distribute list. */
-  distribute_list_set (NULL, type, argv[0]);
+  dist = distribute_list_set (NULL, type, argv[0]);
 
   return CMD_SUCCESS;
 }
@@ -378,6 +379,7 @@ DEFUN (distribute_list,
        "Interface name\n")
 {
   enum distribute_type type;
+  struct distribute *dist;
 
   /* Check of distribute list type. */
   if (strncmp (argv[1], "i", 1) == 0)
@@ -391,7 +393,7 @@ DEFUN (distribute_list,
     }
 
   /* Get interface name corresponding distribute list. */
-  distribute_list_set (argv[2], type, argv[0]);
+  dist = distribute_list_set (argv[2], type, argv[0]);
 
   return CMD_SUCCESS;
 }       
@@ -405,7 +407,7 @@ ALIAS (distribute_list,
        "Filter outgoing routing updates\n"
        "Interface name\n")
 
-DEFUN (no_distribute_list, no_distribute_list_cmd,
+DEFUN (no_districute_list, no_distribute_list_cmd,
        "no distribute-list WORD (in|out) WORD",
        NO_STR
        "Filter networks in routing updates\n"
@@ -437,7 +439,7 @@ DEFUN (no_distribute_list, no_distribute_list_cmd,
   return CMD_SUCCESS;
 }       
 
-ALIAS (no_distribute_list, no_ipv6_distribute_list_cmd,
+ALIAS (no_districute_list, no_ipv6_distribute_list_cmd,
        "no distribute-list WORD (in|out) WORD",
        NO_STR
        "Filter networks in routing updates\n"
@@ -446,7 +448,7 @@ ALIAS (no_distribute_list, no_ipv6_distribute_list_cmd,
        "Filter outgoing routing updates\n"
        "Interface name\n")
 
-DEFUN (distribute_list_prefix_all,
+DEFUN (districute_list_prefix_all,
        distribute_list_prefix_all_cmd,
        "distribute-list prefix WORD (in|out)",
        "Filter networks in routing updates\n"
@@ -456,6 +458,7 @@ DEFUN (distribute_list_prefix_all,
        "Filter outgoing routing updates\n")
 {
   enum distribute_type type;
+  struct distribute *dist;
 
   /* Check of distribute list type. */
   if (strncmp (argv[1], "i", 1) == 0)
@@ -470,12 +473,12 @@ DEFUN (distribute_list_prefix_all,
     }
 
   /* Get interface name corresponding distribute list. */
-  distribute_list_prefix_set (NULL, type, argv[0]);
+  dist = distribute_list_prefix_set (NULL, type, argv[0]);
 
   return CMD_SUCCESS;
 }       
 
-ALIAS (distribute_list_prefix_all,
+ALIAS (districute_list_prefix_all,
        ipv6_distribute_list_prefix_all_cmd,
        "distribute-list prefix WORD (in|out)",
        "Filter networks in routing updates\n"
@@ -484,7 +487,7 @@ ALIAS (distribute_list_prefix_all,
        "Filter incoming routing updates\n"
        "Filter outgoing routing updates\n")
 
-DEFUN (no_distribute_list_prefix_all,
+DEFUN (no_districute_list_prefix_all,
        no_distribute_list_prefix_all_cmd,
        "no distribute-list prefix WORD (in|out)",
        NO_STR
@@ -518,7 +521,7 @@ DEFUN (no_distribute_list_prefix_all,
   return CMD_SUCCESS;
 }       
 
-ALIAS (no_distribute_list_prefix_all,
+ALIAS (no_districute_list_prefix_all,
        no_ipv6_distribute_list_prefix_all_cmd,
        "no distribute-list prefix WORD (in|out)",
        NO_STR
@@ -528,7 +531,7 @@ ALIAS (no_distribute_list_prefix_all,
        "Filter incoming routing updates\n"
        "Filter outgoing routing updates\n")
 
-DEFUN (distribute_list_prefix, distribute_list_prefix_cmd,
+DEFUN (districute_list_prefix, distribute_list_prefix_cmd,
        "distribute-list prefix WORD (in|out) WORD",
        "Filter networks in routing updates\n"
        "Filter prefixes in routing updates\n"
@@ -538,6 +541,7 @@ DEFUN (distribute_list_prefix, distribute_list_prefix_cmd,
        "Interface name\n")
 {
   enum distribute_type type;
+  struct distribute *dist;
 
   /* Check of distribute list type. */
   if (strncmp (argv[1], "i", 1) == 0)
@@ -552,12 +556,12 @@ DEFUN (distribute_list_prefix, distribute_list_prefix_cmd,
     }
 
   /* Get interface name corresponding distribute list. */
-  distribute_list_prefix_set (argv[2], type, argv[0]);
+  dist = distribute_list_prefix_set (argv[2], type, argv[0]);
 
   return CMD_SUCCESS;
 }       
 
-ALIAS (distribute_list_prefix, ipv6_distribute_list_prefix_cmd,
+ALIAS (districute_list_prefix, ipv6_distribute_list_prefix_cmd,
        "distribute-list prefix WORD (in|out) WORD",
        "Filter networks in routing updates\n"
        "Filter prefixes in routing updates\n"
@@ -566,7 +570,7 @@ ALIAS (distribute_list_prefix, ipv6_distribute_list_prefix_cmd,
        "Filter outgoing routing updates\n"
        "Interface name\n")
 
-DEFUN (no_distribute_list_prefix, no_distribute_list_prefix_cmd,
+DEFUN (no_districute_list_prefix, no_distribute_list_prefix_cmd,
        "no distribute-list prefix WORD (in|out) WORD",
        NO_STR
        "Filter networks in routing updates\n"
@@ -600,7 +604,7 @@ DEFUN (no_distribute_list_prefix, no_distribute_list_prefix_cmd,
   return CMD_SUCCESS;
 }       
 
-ALIAS (no_distribute_list_prefix, no_ipv6_distribute_list_prefix_cmd,
+ALIAS (no_districute_list_prefix, no_ipv6_distribute_list_prefix_cmd,
        "no distribute-list prefix WORD (in|out) WORD",
        NO_STR
        "Filter networks in routing updates\n"
@@ -758,25 +762,22 @@ distribute_list_init (int node)
                           (int (*) (const void *, const void *)) distribute_cmp);
 
   if(node==RIP_NODE) {
-    install_element (node, &distribute_list_all_cmd);
-    install_element (node, &no_distribute_list_all_cmd);
-    install_element (node, &distribute_list_cmd);
-    install_element (node, &no_distribute_list_cmd);
-    install_element (node, &distribute_list_prefix_all_cmd);
-    install_element (node, &no_distribute_list_prefix_all_cmd);
-    install_element (node, &distribute_list_prefix_cmd);
-    install_element (node, &no_distribute_list_prefix_cmd);
-  } else if (node == RIPNG_NODE || node == BABEL_NODE) {
-    /* WARNING: two identical commands installed do a crash, so be worry with
-     aliases. For this reason, and because all these commands are aliases, Babel
-     is not set with RIP. */
-    install_element (node, &ipv6_distribute_list_all_cmd);
-    install_element (node, &no_ipv6_distribute_list_all_cmd);
-    install_element (node, &ipv6_distribute_list_cmd);
-    install_element (node, &no_ipv6_distribute_list_cmd);
-    install_element (node, &ipv6_distribute_list_prefix_all_cmd);
-    install_element (node, &no_ipv6_distribute_list_prefix_all_cmd);
-    install_element (node, &ipv6_distribute_list_prefix_cmd);
-    install_element (node, &no_ipv6_distribute_list_prefix_cmd);
+    install_element (RIP_NODE, &distribute_list_all_cmd);
+    install_element (RIP_NODE, &no_distribute_list_all_cmd);
+    install_element (RIP_NODE, &distribute_list_cmd);
+    install_element (RIP_NODE, &no_distribute_list_cmd);
+    install_element (RIP_NODE, &distribute_list_prefix_all_cmd);
+    install_element (RIP_NODE, &no_distribute_list_prefix_all_cmd);
+    install_element (RIP_NODE, &distribute_list_prefix_cmd);
+    install_element (RIP_NODE, &no_distribute_list_prefix_cmd);
+  } else {
+    install_element (RIPNG_NODE, &ipv6_distribute_list_all_cmd);
+    install_element (RIPNG_NODE, &no_ipv6_distribute_list_all_cmd);
+    install_element (RIPNG_NODE, &ipv6_distribute_list_cmd);
+    install_element (RIPNG_NODE, &no_ipv6_distribute_list_cmd);
+    install_element (RIPNG_NODE, &ipv6_distribute_list_prefix_all_cmd);
+    install_element (RIPNG_NODE, &no_ipv6_distribute_list_prefix_all_cmd);
+    install_element (RIPNG_NODE, &ipv6_distribute_list_prefix_cmd);
+    install_element (RIPNG_NODE, &no_ipv6_distribute_list_prefix_cmd);
   }
 }

@@ -2396,11 +2396,11 @@ DEFUN (config_exit,
       vty_config_unlock (vty);
       break;
     case INTERFACE_NODE:
+    case SUB_INTERFACE_NODE:
     case ZEBRA_NODE:
     case BGP_NODE:
     case RIP_NODE:
     case RIPNG_NODE:
-    case BABEL_NODE:
     case OSPF_NODE:
     case OSPF6_NODE:
     case ISIS_NODE:
@@ -2408,6 +2408,7 @@ DEFUN (config_exit,
     case MASC_NODE:
     case RMAP_NODE:
     case VTY_NODE:
+    case VRF_NODE:
       vty->node = CONFIG_NODE;
       break;
     case BGP_VPNV4_NODE:
@@ -2447,10 +2448,10 @@ DEFUN (config_end,
       break;
     case CONFIG_NODE:
     case INTERFACE_NODE:
+    case SUB_INTERFACE_NODE:
     case ZEBRA_NODE:
     case RIP_NODE:
     case RIPNG_NODE:
-    case BABEL_NODE:
     case BGP_NODE:
     case BGP_VPNV4_NODE:
     case BGP_IPV4_NODE:
@@ -2465,6 +2466,7 @@ DEFUN (config_end,
     case KEYCHAIN_KEY_NODE:
     case MASC_NODE:
     case VTY_NODE:
+    case VRF_NODE:
       vty_config_unlock (vty);
       vty->node = ENABLE_NODE;
       break;

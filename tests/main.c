@@ -99,7 +99,7 @@ Report bugs to %s\n", progname, ZEBRA_BUG_ADDRESS);
 
 /* main routine. */
 int
-main (int argc, char **argv)
+main (int argc, char **argv, const char *ZEBRA_VTYSH_PATH)
 {
   char *p;
   char *vty_addr = NULL;

@@ -43,7 +43,6 @@ typedef enum
 {
   RMAP_RIP,
   RMAP_RIPNG,
-  RMAP_BABEL,
   RMAP_OSPF,
   RMAP_OSPF6,
   RMAP_BGP,

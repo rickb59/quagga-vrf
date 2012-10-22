@@ -19,6 +19,7 @@
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
  * 02111-1307, USA.  
  */
+#define HAVE_VRF 1
 
 #include <zebra.h>
 
@@ -32,6 +33,7 @@
 #include "connected.h"
 #include "log.h"
 #include "zclient.h"
+#include "vrf.h"
 
 #include "zebra/interface.h"
 #include "zebra/rtadv.h"
@@ -76,9 +78,9 @@ if_zebra_new_hook (struct interface *ifp)
     rtadv->AdvReachableTime = 0;
     rtadv->AdvRetransTimer = 0;
     rtadv->AdvCurHopLimit = 0;
-    rtadv->AdvDefaultLifetime = -1; /* derive from MaxRtrAdvInterval */
+    rtadv->AdvDefaultLifetime = RTADV_ADV_DEFAULT_LIFETIME;
     rtadv->HomeAgentPreference = 0;
-    rtadv->HomeAgentLifetime = -1; /* derive from AdvDefaultLifetime */
+    rtadv->HomeAgentLifetime = RTADV_ADV_DEFAULT_LIFETIME;
     rtadv->AdvIntervalOption = 0;
     rtadv->DefaultPreference = RTADV_PREF_MEDIUM;
 
@@ -216,7 +218,7 @@ if_subnet_delete (struct interface *ifp, struct connected *ifc)
  * interface will affect only the primary interface/address on Solaris.
  ************************End Solaris flags hacks ***********************
  */
-static void
+static inline void
 if_flags_mangle (struct interface *ifp, uint64_t *newflags)
 {
 #ifdef SUNOS_5
@@ -522,7 +524,7 @@ if_up (struct interface *ifp)
     }
 
   /* Examine all static routes. */
-  rib_update ();
+  rib_update (ifp->vrf_id);
 }
 
 /* Interface goes down.  We have to manage different behavior of based
@@ -555,7 +557,7 @@ if_down (struct interface *ifp)
     }
 
   /* Examine all static routes which direct to the interface. */
-  rib_update ();
+  rib_update (ifp->vrf_id);
 }
 
 void
@@ -630,12 +632,8 @@ nd_dump_vty (struct vty *vty, struct interface *ifp)
         vty_out (vty, "  ND router advertisements are sent every "
 			"%d seconds%s", interval / 1000,
 		 VTY_NEWLINE);
-      if (rtadv->AdvDefaultLifetime != -1)
 	vty_out (vty, "  ND router advertisements live for %d seconds%s",
 		 rtadv->AdvDefaultLifetime, VTY_NEWLINE);
-      else
-	vty_out (vty, "  ND router advertisements lifetime tracks ra-interval%s",
-		 VTY_NEWLINE);
       vty_out (vty, "  ND router advertisement default router preference is "
 			"%s%s", rtadv_pref_strs[rtadv->DefaultPreference],
 		 VTY_NEWLINE);
@@ -646,19 +644,9 @@ nd_dump_vty (struct vty *vty, struct interface *ifp)
 	vty_out (vty, "  Hosts use stateless autoconfig for addresses.%s",
 		 VTY_NEWLINE);
       if (rtadv->AdvHomeAgentFlag)
-      {
       	vty_out (vty, "  ND router advertisements with "
 				"Home Agent flag bit set.%s",
 		 VTY_NEWLINE);
-	if (rtadv->HomeAgentLifetime != -1)
-	  vty_out (vty, "  Home Agent lifetime is %u seconds%s",
-	           rtadv->HomeAgentLifetime, VTY_NEWLINE);
-	else
-	  vty_out (vty, "  Home Agent lifetime tracks ra-lifetime%s",
-	           VTY_NEWLINE);
-	vty_out (vty, "  Home Agent preference is %u%s",
-	         rtadv->HomeAgentPreference, VTY_NEWLINE);
-      }
       if (rtadv->AdvIntervalOption)
       	vty_out (vty, "  ND router advertisements with Adv. Interval option.%s",
 		 VTY_NEWLINE);
@@ -667,7 +655,7 @@ nd_dump_vty (struct vty *vty, struct interface *ifp)
 #endif /* RTADV */
 
 /* Interface's information print out to vty interface. */
-static void
+void
 if_dump_vty (struct vty *vty, struct interface *ifp)
 {
 #ifdef HAVE_STRUCT_SOCKADDR_DL
@@ -695,6 +683,25 @@ if_dump_vty (struct vty *vty, struct interface *ifp)
   } else {
     vty_out (vty, "down%s", VTY_NEWLINE);
   }
+#ifdef HAVE_VRF
+  if (ifp->vrf_id)
+  {
+//	  int vrf_id;
+	  struct vrf *vrfp;
+
+	  vrfp = vrf_lookup (ifp->vrf_id);
+	  if(vrfp)
+	  {
+		  char *name;
+		  name = vrfp->name;
+		  vty_out (vty, "  VRF: %s%s", name,
+	     VTY_NEWLINE);
+	  }
+	  else
+		  vty_out (vty, "  VRF: %s%s", "MISSING",
+	     VTY_NEWLINE);
+  }
+#endif /* HAVE_VRF */
 
   if (ifp->desc)
     vty_out (vty, "  Description: %s%s", ifp->desc,
@@ -882,6 +889,15 @@ struct cmd_node interface_node =
   1
 };
 
+struct cmd_node sub_interface_node =
+{
+  SUB_INTERFACE_NODE,
+  "%s(config-subif)# ",
+  1
+};
+
+
+
 /* Show all or specified interface to vty. */
 DEFUN (show_interface, show_interface_cmd,
        "show interface [IFNAME]",  
@@ -891,7 +907,9 @@ DEFUN (show_interface, show_interface_cmd,
 {
   struct listnode *node;
   struct interface *ifp;
+  int vrf_id;
   
+  vrf_id = -1;
 #ifdef HAVE_PROC_NET_DEV
   /* If system has interface statistics via proc file system, update
      statistics. */
@@ -904,7 +922,7 @@ DEFUN (show_interface, show_interface_cmd,
   /* Specified interface print. */
   if (argc != 0)
     {
-      ifp = if_lookup_by_name (argv[0]);
+      ifp = if_lookup_by_name (argv[0], vrf_id);
       if (ifp == NULL) 
 	{
 	  vty_out (vty, "%% Can't find interface %s%s", argv[0],
@@ -932,7 +950,10 @@ DEFUN (show_interface_desc,
   struct listnode *node;
   struct interface *ifp;
 
-  vty_out (vty, "Interface       Status  Protocol  Description%s", VTY_NEWLINE);
+  vty_out (vty, "Interface       Status  Protocol  ");
+  if(get_vrf_active() > 1)
+	  vty_out (vty, "VRF          ");
+  vty_out (vty, "  Description%s", VTY_NEWLINE);
   for (ALL_LIST_ELEMENTS_RO (iflist, node, ifp))
     {
       int len;
@@ -960,12 +981,177 @@ DEFUN (show_interface_desc,
 	  vty_out (vty, "down    down      ");
 	}
 
+      if(get_vrf_active() > 1) {
+    	  struct vrf *vrfp;
+       	  vrfp = vrf_lookup(ifp->vrf_id);
+    	  if(vrfp)
+    		  vty_out (vty, "%-10s", vrfp->name);
+      }
+
       if (ifp->desc)
 	vty_out (vty, "%s", ifp->desc);
       vty_out (vty, "%s", VTY_NEWLINE);
     }
   return CMD_SUCCESS;
 }
+
+
+DEFUN (show_interface_addr,
+       show_interface_addr_cmd,
+       "show interface address",
+       SHOW_STR
+       "Interface status and configuration\n"
+       "Interface description\n")
+{
+  struct listnode *node, *node1;
+  struct interface *ifp;
+  struct route_node *rn;
+  struct zebra_if *zebra_if;
+
+  vty_out (vty, "Interface       Address           Status  Protocol  ");
+  if(get_vrf_active() > 1)
+	  vty_out (vty, "VRF          ");
+
+  vty_out (vty, "  Description%s", VTY_NEWLINE);
+  for (ALL_LIST_ELEMENTS_RO (iflist, node, ifp))
+    {
+      int len;
+
+      len = vty_out (vty, "%s", ifp->name);
+      vty_out (vty, "%*s", (16 - len), " ");
+      
+#if 1
+
+    	  struct connected *connected;
+    	  struct prefix *p;
+    	  int test;
+    	  test =  0;
+    	  zebra_if = ifp->info;
+    	  for (rn = route_top (zebra_if->ipv4_subnets); rn; rn = route_next (rn))
+    	    {
+    	      if (! rn->info) {
+          	      vty_out (vty, "%18s"," ");
+          		continue;
+    	      }
+
+    	      for (ALL_LIST_ELEMENTS_RO ((struct list *)rn->info, node1, connected)) {
+    	      struct prefix *p;
+    	      char str[100];
+    	      char str2[10];
+    	      test = 1;
+
+    	      /* Print interface address. */
+    	      p = connected->address;
+//    	      vty_out (vty, "  %s ", prefix_family_str (p));
+//   	      prefix_vty_out (vty, p);
+    	      inet_ntop (p->family, &p->u.prefix, str, sizeof (str));
+    	      sprintf(str2, "/%d", p->prefixlen);
+    	      strcat(str,str2);
+//    	      vty_out (vty, "/%s", p->prefixlen);
+      	      vty_out (vty, "%-18s",str);
+    	      }
+    	    }
+    	  if (!test)
+      	      vty_out (vty, "%18s"," ");
+
+#endif
+
+#if 0
+     	  for (ALL_LIST_ELEMENTS_RO (ifp->connected, node1, connected))
+    	    {
+    	      if (CHECK_FLAG (connected->conf, ZEBRA_IFC_REAL) &&
+    		  (connected->address->family == AF_INET6)) {
+//    		connected_dump_vty (vty, connected);
+    	      /* Print interface address. */
+    	      p = connected->address;
+//    	      vty_out (vty, "  %s ", prefix_family_str (p));
+    	      prefix_vty_out (vty, p);
+    	      vty_out (vty, "/%d", p->prefixlen);
+    	      }
+    	      else
+    	    	  vty_out (vty, "%18s"," ");
+    	    }
+      }
+#endif
+
+      if (if_is_up(ifp))
+	{
+	  vty_out (vty, "up      ");
+	  if (CHECK_FLAG(ifp->status, ZEBRA_INTERFACE_LINKDETECTION))
+	    {
+	      if (if_is_running(ifp))
+		vty_out (vty, "up        ");
+	      else
+		vty_out (vty, "down      ");
+	    }
+	  else
+	    {
+	      vty_out (vty, "unknown   ");
+	    }
+	}
+      else
+	{
+	  vty_out (vty, "down    down      ");
+	}
+
+      if(get_vrf_active() > 1) {
+    	  struct vrf *vrfp;
+       	  vrfp = vrf_lookup(ifp->vrf_id);
+    	  if(vrfp)
+    		  vty_out (vty, "%-10s", vrfp->name);
+      }
+
+      if (ifp->desc)
+	vty_out (vty, "%s", ifp->desc);
+      vty_out (vty, "%s", VTY_NEWLINE);
+    }
+  return CMD_SUCCESS;
+}
+
+#ifdef HAVE_NETLINK
+
+DEFUN (interface_vlan,
+       interface_vlan_cmd,
+       "vlan NUMBER",
+       "Sub-Interface vlan\n"
+       "VLAN number for this sub-interface\n")
+{
+  struct interface *ifp;
+  int vlan;
+  int ret;
+
+
+  if (argc == 0)
+    return CMD_SUCCESS;
+
+  VTY_GET_INTEGER_RANGE ("VLAN", vlan, argv[0], 1, VLAN_ID_MAX);
+
+  ifp = vty->index;
+  ifp->vlan = vlan;
+  ret = if_set_vlan (ifp, vlan);
+  if (ret)
+	  return CMD_SUCCESS;
+  return CMD_WARNING;
+}
+
+DEFUN (no_interface_vlan,
+       no_interface_vlan_cmd,
+       "no description",
+       NO_STR
+       "Interface vlan\n")
+{
+  struct interface *ifp;
+  int ret;
+  ifp = vty->index;
+  ifp->vlan = 0;
+  ret = if_set_vlan (ifp, 0);
+   if (ret)
+ 	  return CMD_SUCCESS;
+   return CMD_WARNING;
+
+  return CMD_SUCCESS;
+}
+#endif /* HAVE_NETLINK */
 
 DEFUN (multicast,
        multicast_cmd,
@@ -1109,6 +1295,30 @@ DEFUN (no_shutdown_if,
 
   return CMD_SUCCESS;
 }
+
+DEFUN (mtu_if,
+       mtu_if_cmd,
+       "mtu <1-10000000>",
+       "Set mtu parameter\n"
+       "mtu in bytes\n")
+{
+  struct interface *ifp;
+  unsigned int mtu;
+
+  ifp = (struct interface *) vty->index;
+  mtu = strtol(argv[0], NULL, 10);
+
+  /* bandwidth range is <1-10000000> */
+  if (mtu < 1 || mtu > 10000000)
+    {
+      vty_out (vty, "MTU is invalid%s", VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+
+  if_set_mtu (ifp, mtu);
+}
+
+
 
 DEFUN (bandwidth_if,
        bandwidth_if_cmd,
@@ -1522,6 +1732,64 @@ DEFUN (no_ipv6_address,
 }
 #endif /* HAVE_IPV6 */
 
+#ifdef HAVE_VRF
+DEFUN (interface_vrf,
+       interface_vrf_cmd,
+       "vrf WORD",
+       "Specify VRF of interface\n"
+       "WORD\n")
+{
+  struct interface *ifp;
+  int id, err;
+  char *name;
+
+  if (argc == 0)
+    return CMD_SUCCESS;
+  name = argv[0];
+
+  id = vrf_find_by_name(name);
+ if (id < 0) {
+	 vty_out (vty, "%% Unknown VRF%s", VTY_NEWLINE);
+	 return CMD_WARNING;
+ }
+
+  ifp = vty->index;
+
+  if(if_is_loopback(ifp) || if_is_subif(ifp->name)) {
+	  err = if_set_vrf(ifp, id);
+	  if (err) {
+		  vty_out (vty, "%% VRF move failed%s", VTY_NEWLINE);
+		  return CMD_WARNING;
+	  }
+  }
+  else {
+	  vty_out(vty, " Cannot move physical interface%s", VTY_NEWLINE);
+	  return CMD_WARNING;
+  }
+  return CMD_SUCCESS;
+}
+
+DEFUN (no_interface_vrf,
+       no_interface_vrf_cmd,
+       "no vrf WORD",
+       NO_STR
+       "Remove interface from VRF"
+       "WORD  name of vrf\n")
+{
+  struct interface *ifp;
+
+  ifp = vty->index;
+  ifp->vrf_id = 0;
+
+  return CMD_SUCCESS;
+}
+#endif /* HAVE_VRF */
+
+static int
+subif_config_write (struct vty *vty)
+{
+}
+
 static int
 if_config_write (struct vty *vty)
 {
@@ -1544,6 +1812,14 @@ if_config_write (struct vty *vty)
 	vty_out (vty, " description %s%s", ifp->desc,
 		 VTY_NEWLINE);
 
+      	 if(ifp->vlan)
+      		vty_out(vty, " vlan %d%s", ifp->vlan, VTY_NEWLINE);
+      	 if(ifp->vrf_id) {
+      		 struct vrf *vrfp;
+       	  vrfp = vrf_lookup(ifp->vrf_id);
+      		 if(vrfp)
+      			 vty_out(vty, " vrf %s%s", vrfp->name, VTY_NEWLINE);
+      	 }
       /* Assign bandwidth here to avoid unnecessary interface flap
 	 while processing config script */
       if (ifp->bandwidth != 0)
@@ -1606,14 +1882,20 @@ zebra_if_init (void)
   /* Install configuration write function. */
   install_node (&interface_node, if_config_write);
 
+
   install_element (VIEW_NODE, &show_interface_cmd);
   install_element (ENABLE_NODE, &show_interface_cmd);
   install_element (ENABLE_NODE, &show_interface_desc_cmd);
+  install_element (ENABLE_NODE, &show_interface_addr_cmd);
   install_element (CONFIG_NODE, &zebra_interface_cmd);
   install_element (CONFIG_NODE, &no_interface_cmd);
   install_default (INTERFACE_NODE);
   install_element (INTERFACE_NODE, &interface_desc_cmd);
   install_element (INTERFACE_NODE, &no_interface_desc_cmd);
+#ifdef HAVE_VRF
+   install_element (INTERFACE_NODE, &interface_vrf_cmd);
+   install_element (INTERFACE_NODE, &no_interface_vrf_cmd);
+#endif  /* HAVE_VRF */
   install_element (INTERFACE_NODE, &multicast_cmd);
   install_element (INTERFACE_NODE, &no_multicast_cmd);
   install_element (INTERFACE_NODE, &linkdetect_cmd);
@@ -1625,6 +1907,10 @@ zebra_if_init (void)
   install_element (INTERFACE_NODE, &no_bandwidth_if_val_cmd);
   install_element (INTERFACE_NODE, &ip_address_cmd);
   install_element (INTERFACE_NODE, &no_ip_address_cmd);
+  install_element (INTERFACE_NODE, &mtu_if_cmd);
+
+
+
 #ifdef HAVE_IPV6
   install_element (INTERFACE_NODE, &ipv6_address_cmd);
   install_element (INTERFACE_NODE, &no_ipv6_address_cmd);
@@ -1633,4 +1919,34 @@ zebra_if_init (void)
   install_element (INTERFACE_NODE, &ip_address_label_cmd);
   install_element (INTERFACE_NODE, &no_ip_address_label_cmd);
 #endif /* HAVE_NETLINK */
+
+  /* same thing for sub interfaces */
+  install_node (&sub_interface_node, subif_config_write);
+  install_default (SUB_INTERFACE_NODE);
+   install_element (SUB_INTERFACE_NODE, &interface_desc_cmd);
+   install_element (SUB_INTERFACE_NODE, &no_interface_desc_cmd);
+   install_element (SUB_INTERFACE_NODE, &interface_vlan_cmd);
+   install_element (SUB_INTERFACE_NODE, &no_interface_vlan_cmd);
+#ifdef HAVE_VRF
+   install_element (SUB_INTERFACE_NODE, &interface_vrf_cmd);
+   install_element (SUB_INTERFACE_NODE, &no_interface_vrf_cmd);
+#endif  /* HAVE_VRF */
+   install_element (SUB_INTERFACE_NODE, &multicast_cmd);
+   install_element (SUB_INTERFACE_NODE, &no_multicast_cmd);
+   install_element (SUB_INTERFACE_NODE, &linkdetect_cmd);
+   install_element (SUB_INTERFACE_NODE, &no_linkdetect_cmd);
+   install_element (SUB_INTERFACE_NODE, &shutdown_if_cmd);
+   install_element (SUB_INTERFACE_NODE, &no_shutdown_if_cmd);
+   install_element (SUB_INTERFACE_NODE, &bandwidth_if_cmd);
+   install_element (SUB_INTERFACE_NODE, &no_bandwidth_if_cmd);
+   install_element (SUB_INTERFACE_NODE, &no_bandwidth_if_val_cmd);
+   install_element (SUB_INTERFACE_NODE, &ip_address_cmd);
+   install_element (SUB_INTERFACE_NODE, &no_ip_address_cmd);
+ #ifdef HAVE_IPV6
+   install_element (SUB_INTERFACE_NODE, &ipv6_address_cmd);
+   install_element (SUB_INTERFACE_NODE, &no_ipv6_address_cmd);
+ #endif /* HAVE_IPV6 */
+
+   install_element (SUB_INTERFACE_NODE, &ip_address_label_cmd);
+   install_element (SUB_INTERFACE_NODE, &no_ip_address_label_cmd);
 }

@@ -134,7 +134,7 @@ open_packet_socket (struct isis_circuit *circuit)
 
   circuit->fd = fd;
 
-  if (if_is_broadcast (circuit->interface))
+  if (circuit->circ_type == CIRCUIT_T_BROADCAST)
     {
       /*
        * Join to multicast groups
@@ -142,17 +142,19 @@ open_packet_socket (struct isis_circuit *circuit)
        * 8.4.2 - Broadcast subnetwork IIH PDUs
        * FIXME: is there a case only one will fail??
        */
-      if (circuit->is_type & IS_LEVEL_1)
+      if (circuit->circuit_is_type & IS_LEVEL_1)
+	{
         /* joining ALL_L1_ISS */
         retval = isis_multicast_join (circuit->fd, 1,
                                       circuit->interface->ifindex);
-      if (circuit->is_type & IS_LEVEL_2)
+	  /* joining ALL_ISS */
+	  retval = isis_multicast_join (circuit->fd, 3,
+					circuit->interface->ifindex);
+	}
+      if (circuit->circuit_is_type & IS_LEVEL_2)
         /* joining ALL_L2_ISS */
         retval = isis_multicast_join (circuit->fd, 2,
                                       circuit->interface->ifindex);
-      /* joining ALL_ISS (used in RFC 5309 p2p-over-lan as well) */
-      retval = isis_multicast_join (circuit->fd, 3,
-                                    circuit->interface->ifindex);
     }
   else
     {
@@ -182,13 +184,12 @@ isis_sock_init (struct isis_circuit *circuit)
       goto end;
     }
 
-  /* Assign Rx and Tx callbacks are based on real if type */
-  if (if_is_broadcast (circuit->interface))
+  if (circuit->circ_type == CIRCUIT_T_BROADCAST)
     {
       circuit->tx = isis_send_pdu_bcast;
       circuit->rx = isis_recv_pdu_bcast;
     }
-  else if (if_is_pointopoint (circuit->interface))
+  else if (circuit->circ_type == CIRCUIT_T_P2P)
     {
       circuit->tx = isis_send_pdu_p2p;
       circuit->rx = isis_recv_pdu_p2p;
@@ -231,16 +232,19 @@ isis_recv_pdu_bcast (struct isis_circuit *circuit, u_char * ssnpa)
 			LLC_LEN, MSG_PEEK,
 			(struct sockaddr *) &s_addr, (socklen_t *) &addr_len);
 
+  if (!circuit->area) {
+    return ISIS_OK;
+  }
+
   if (bytesread < 0)
     {
-      zlog_warn ("isis_recv_packet_bcast(): ifname %s, fd %d, bytesread %d, "
-                 "recvfrom(): %s",
-                 circuit->interface->name, circuit->fd, bytesread,
-                 safe_strerror (errno));
+      zlog_warn ("isis_recv_packet_bcast(): fd %d, recvfrom (): %s",
+		 circuit->fd, safe_strerror (errno));
+      zlog_warn ("circuit is %s", circuit->interface->name);
+      zlog_warn ("circuit fd %d", circuit->fd);
+      zlog_warn ("bytesread %d", bytesread);
       /* get rid of the packet */
-      bytesread = recvfrom (circuit->fd, discard_buff, sizeof (discard_buff),
-                            MSG_DONTWAIT, (struct sockaddr *) &s_addr,
-                            (socklen_t *) &addr_len);
+      bytesread = read (circuit->fd, discard_buff, sizeof (discard_buff));
       return ISIS_WARNING;
     }
   /*
@@ -249,22 +253,15 @@ isis_recv_pdu_bcast (struct isis_circuit *circuit, u_char * ssnpa)
   if (!llc_check (llc) || s_addr.sll_pkttype == PACKET_OUTGOING)
     {
       /*  Read the packet into discard buff */
-      bytesread = recvfrom (circuit->fd, discard_buff, sizeof (discard_buff),
-                            MSG_DONTWAIT, (struct sockaddr *) &s_addr,
-                            (socklen_t *) &addr_len);
+      bytesread = read (circuit->fd, discard_buff, sizeof (discard_buff));
       if (bytesread < 0)
-	zlog_warn ("isis_recv_pdu_bcast(): recvfrom() failed");
+	zlog_warn ("isis_recv_pdu_bcast(): read() failed");
       return ISIS_WARNING;
     }
 
   /* on lan we have to read to the static buff first */
-  bytesread = recvfrom (circuit->fd, sock_buff, sizeof (sock_buff), MSG_DONTWAIT,
+  bytesread = recvfrom (circuit->fd, sock_buff, circuit->interface->mtu, 0,
 			(struct sockaddr *) &s_addr, (socklen_t *) &addr_len);
-  if (bytesread < 0)
-    {
-      zlog_warn ("isis_recv_pdu_bcast(): recvfrom() failed");
-      return ISIS_WARNING;
-    }
 
   /* then we lose the LLC */
   stream_write (circuit->rcv_stream, sock_buff + LLC_LEN, bytesread - LLC_LEN);
@@ -292,11 +289,9 @@ isis_recv_pdu_p2p (struct isis_circuit *circuit, u_char * ssnpa)
   if (s_addr.sll_pkttype == PACKET_OUTGOING)
     {
       /*  Read the packet into discard buff */
-      bytesread = recvfrom (circuit->fd, discard_buff, sizeof (discard_buff),
-                            MSG_DONTWAIT, (struct sockaddr *) &s_addr,
-                            (socklen_t *) &addr_len);
+      bytesread = read (circuit->fd, discard_buff, sizeof (discard_buff));
       if (bytesread < 0)
-	zlog_warn ("isis_recv_pdu_p2p(): recvfrom() failed");
+	zlog_warn ("isis_recv_pdu_p2p(): read() failed");
       return ISIS_WARNING;
     }
 
@@ -318,9 +313,6 @@ isis_recv_pdu_p2p (struct isis_circuit *circuit, u_char * ssnpa)
 int
 isis_send_pdu_bcast (struct isis_circuit *circuit, int level)
 {
-  struct msghdr msg;
-  struct iovec iov[2];
-
   /* we need to do the LLC in here because of P2P circuits, which will
    * not need it
    */
@@ -333,10 +325,7 @@ isis_send_pdu_bcast (struct isis_circuit *circuit, int level)
   sa.sll_protocol = htons (stream_get_endp (circuit->snd_stream) + LLC_LEN);
   sa.sll_ifindex = circuit->interface->ifindex;
   sa.sll_halen = ETH_ALEN;
-  /* RFC5309 section 4.1 recommends ALL_ISS */
-  if (circuit->circ_type == CIRCUIT_T_P2P)
-    memcpy (&sa.sll_addr, ALL_ISS, ETH_ALEN);
-  else if (level == 1)
+  if (level == 1)
     memcpy (&sa.sll_addr, ALL_L1_ISS, ETH_ALEN);
   else
     memcpy (&sa.sll_addr, ALL_L2_ISS, ETH_ALEN);
@@ -347,17 +336,14 @@ isis_send_pdu_bcast (struct isis_circuit *circuit, int level)
   sock_buff[1] = 0xFE;
   sock_buff[2] = 0x03;
 
-  memset (&msg, 0, sizeof (msg));
-  msg.msg_name = &sa;
-  msg.msg_namelen = sizeof (struct sockaddr_ll);
-  msg.msg_iov = iov;
-  msg.msg_iovlen = 2;
-  iov[0].iov_base = sock_buff;
-  iov[0].iov_len = LLC_LEN;
-  iov[1].iov_base = circuit->snd_stream->data;
-  iov[1].iov_len = stream_get_endp (circuit->snd_stream);
+  /* then we copy the data */
+  memcpy (sock_buff + LLC_LEN, circuit->snd_stream->data,
+	  stream_get_endp (circuit->snd_stream));
 
-  written = sendmsg (circuit->fd, &msg, 0);
+  /* now we can send this */
+  written = sendto (circuit->fd, sock_buff,
+		    stream_get_endp(circuit->snd_stream) + LLC_LEN, 0,
+		    (struct sockaddr *) &sa, sizeof (struct sockaddr_ll));
 
   return ISIS_OK;
 }
@@ -365,6 +351,7 @@ isis_send_pdu_bcast (struct isis_circuit *circuit, int level)
 int
 isis_send_pdu_p2p (struct isis_circuit *circuit, int level)
 {
+
   int written = 1;
   struct sockaddr_ll sa;
 

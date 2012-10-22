@@ -1,11 +1,9 @@
 #!/bin/bash
+#
 # chkconfig: 2345 17 83
-
-### BEGIN INIT INFO
-# Provides: watchquagga
-# Short-Description: Quagga watchdog
-# Description: Quagga watchdog for use with Zebra
-### END INIT INFO
+# description: A Quagga watchdog for use with Zebra
+#
+# processname: watchquagga
 
 # source function library
 . /etc/rc.d/init.d/functions
@@ -16,51 +14,49 @@
 # quagga command line options
 . /etc/sysconfig/quagga
 
+	# Check that networking is up.
+[ "${NETWORKING}" = "no" ] && exit 0
+
+	# Check that there are daemons to be monitored.
+[ -z "$WATCH_DAEMONS" ] && exit 0
+
 RETVAL=0
-PROG="watchquagga"
-cmd=watchquagga
-LOCK_FILE=/var/lock/subsys/watchquagga
+prog="watchquagga"
 
 case "$1" in
   start)
-	# Check that networking is up.
-	[ "${NETWORKING}" = "no" ] && exit 1
-
-	# Check that there are daemons to be monitored.
-	[ -z "$WATCH_DAEMONS" ] && exit 1
-
-	echo -n $"Starting $PROG: "
-	daemon $cmd -d $WATCH_OPTS $WATCH_DAEMONS
+	echo -n $"Starting $prog: "
+        daemon /usr/sbin/watchquagga -d $WATCH_OPTS $WATCH_DAEMONS
 	RETVAL=$?
-	[ $RETVAL -eq 0 ] && touch $LOCK_FILE
+	[ $RETVAL -eq 0 ] && touch /var/lock/subsys/watchquagga
 	echo
 	;;
   stop)
-	echo -n $"Shutting down $PROG: "
-	killproc $cmd
+	echo -n $"Shutting down $prog: "
+	killproc watchquagga
 	RETVAL=$?
-	[ $RETVAL -eq 0 ] && rm -f $LOCK_FILE
+	[ $RETVAL -eq 0 ] && rm -f /var/lock/subsys/watchquagga
 	echo
 	;;
-  restart|reload|force-reload)
+  restart|reload)
 	$0 stop
 	$0 start
 	RETVAL=$?
 	;;
-  condrestart|try-restart)
-	if [ -f $LOCK_FILE ]; then
+  condrestart)
+        if [ -f /var/lock/subsys/watchquagga ]; then
 		$0 stop
 		$0 start
 	fi
 	RETVAL=$?
 	;;
   status)
-	status $cmd
+        status watchquagga
 	RETVAL=$?
 	;;
   *)
-	echo $"Usage: $0 {start|stop|restart|reload|force-reload|condrestart|try-restart|status}"
-	exit 2
+	echo $"Usage: $0 {start|stop|restart|reload|condrestart|status}"
+	exit 1
 esac
 
 exit $RETVAL

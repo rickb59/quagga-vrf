@@ -934,7 +934,7 @@ ospfLsdbLookup (struct variable *v, oid *name, size_t *length,
   struct ospf *ospf;
   struct ospf_area *area;
   struct ospf_lsa *lsa;
-  int len;
+  unsigned int len;
   int type_next;
   int ls_id_next;
   int router_id_next;
@@ -992,7 +992,7 @@ ospfLsdbLookup (struct variable *v, oid *name, size_t *length,
       if (len == IN_ADDR_SIZE)
 	area = ospf_area_lookup_by_area_id (ospf, *area_id);
       else
-	area = ospf_area_lookup_next (ospf, area_id, 1);
+	area = ospf_area_lookup_next (ospf, area_id, len == 0 ? 1 : 0);
 
       if (area == NULL)
 	return NULL;
@@ -1000,8 +1000,8 @@ ospfLsdbLookup (struct variable *v, oid *name, size_t *length,
       do 
 	{
 	  /* Next we lookup type. */
-	  offset += len;
-	  offsetlen -= len;
+	  offset += IN_ADDR_SIZE;
+	  offsetlen -= IN_ADDR_SIZE;
 	  len = offsetlen;
 
 	  if (len <= 0)

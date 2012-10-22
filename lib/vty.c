@@ -695,11 +695,12 @@ vty_end_config (struct vty *vty)
       /* Nothing to do. */
       break;
     case CONFIG_NODE:
+    case VRF_NODE:
     case INTERFACE_NODE:
+    case SUB_INTERFACE_NODE:
     case ZEBRA_NODE:
     case RIP_NODE:
     case RIPNG_NODE:
-    case BABEL_NODE:
     case BGP_NODE:
     case BGP_VPNV4_NODE:
     case BGP_IPV4_NODE:
@@ -1104,11 +1105,12 @@ vty_stop_input (struct vty *vty)
       /* Nothing to do. */
       break;
     case CONFIG_NODE:
+    case VRF_NODE:
     case INTERFACE_NODE:
+    case SUB_INTERFACE_NODE:
     case ZEBRA_NODE:
     case RIP_NODE:
     case RIPNG_NODE:
-    case BABEL_NODE:
     case BGP_NODE:
     case RMAP_NODE:
     case OSPF_NODE:
@@ -1687,6 +1689,7 @@ static int
 vty_accept (struct thread *thread)
 {
   int vty_sock;
+  struct vty *vty;
   union sockunion su;
   int ret;
   unsigned int on;
@@ -1771,7 +1774,7 @@ vty_accept (struct thread *thread)
   if (bufp)
     XFREE (MTYPE_TMP, bufp);
 
-  vty_create (vty_sock, &su);
+  vty = vty_create (vty_sock, &su);
 
   return 0;
 }
@@ -1817,7 +1820,6 @@ vty_serv_sock_addrinfo (const char *hostname, unsigned short port)
       if (sock < 0)
 	continue;
 
-      sockopt_v6only (ainfo->ai_family, sock);
       sockopt_reuseaddr (sock);
       sockopt_reuseport (sock);
 
@@ -1841,7 +1843,7 @@ vty_serv_sock_addrinfo (const char *hostname, unsigned short port)
 
   freeaddrinfo (ainfo_save);
 }
-#else /* HAVE_IPV6 && ! NRL */
+#endif /* HAVE_IPV6 && ! NRL */
 
 /* Make vty server socket. */
 static void
@@ -1907,7 +1909,6 @@ vty_serv_sock_family (const char* addr, unsigned short port, int family)
   /* Add vty server event. */
   vty_event (VTY_SERV, accept_sock, NULL);
 }
-#endif /* HAVE_IPV6 && ! NRL */
 
 #ifdef VTYSH
 /* For sockaddr_un. */

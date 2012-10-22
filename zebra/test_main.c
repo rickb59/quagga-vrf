@@ -284,7 +284,7 @@ main (int argc, char **argv)
   cmd_init (1);
   vty_init (zebrad.master);
   memory_init ();
-  if_init();
+  if_init(0);
   zebra_debug_init ();
   zebra_if_init ();
   test_cmd_init ();
@@ -305,7 +305,7 @@ main (int argc, char **argv)
   vty_read_config (config_file, config_default);
 
   /* Clean up rib. */
-  rib_weed_tables ();
+  rib_weed_tables (0);
 
   /* Exit when zebra is working in batch mode. */
   if (batch_mode)

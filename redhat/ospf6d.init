@@ -1,12 +1,10 @@
 #!/bin/bash
-# chkconfig: - 16 84
+#
+# chkconfig: 2345 16 84
+# description: An OSPF routing engine for use with Zebra and IPv6
+#
+# processname: ospf6d
 # config: /etc/quagga/ospf6d.conf
-
-### BEGIN INIT INFO
-# Provides: ospf6d
-# Short-Description: OSPF routing engine for IPv6
-# Description: OSPF routing engine for use with Zebra and IPv6
-### END INIT INFO
 
 # source function library
 . /etc/rc.d/init.d/functions
@@ -17,56 +15,49 @@
 # quagga command line options
 . /etc/sysconfig/quagga
 
+	# Check that networking is up.
+[ "${NETWORKING_IPV6}" = "no" ] && exit 0
+
+	# The process must be configured first.
+[ -f /etc/quagga/ospf6d.conf ] || exit 0
+
 RETVAL=0
-PROG="ospf6d"
-cmd=ospf6d
-LOCK_FILE=/var/lock/subsys/ospf6d
-CONF_FILE=/etc/quagga/ospf6d.conf
+prog="ospf6d"
 
 case "$1" in
   start)
-	# Check that networking is up.
-	[ "${NETWORKING}" = "no" ] && exit 1
-
-	# The process must be configured first.
-	[ -f $CONF_FILE ] || exit 6
-	if [ `id -u` -ne 0 ]; then
-		echo $"Insufficient privilege" 1>&2
-		exit 4
-	fi
-
-	echo -n $"Starting $PROG: "
-	daemon $cmd -d $OSPF6D_OPTS -f $CONF_FILE
+	echo -n $"Starting $prog: "
+        daemon /usr/sbin/ospf6d -d $OSPF6D_OPTS
 	RETVAL=$?
-	[ $RETVAL -eq 0 ] && touch $LOCK_FILE
+	[ $RETVAL -eq 0 ] && touch /var/lock/subsys/ospf6d
 	echo
 	;;
   stop)
-	echo -n $"Shutting down $PROG: "
-	killproc $cmd
+	echo -n $"Shutting down $prog: "
+	killproc ospf6d
 	RETVAL=$?
-	[ $RETVAL -eq 0 ] && rm -f $LOCK_FILE
+	[ $RETVAL -eq 0 ] && rm -f /var/lock/subsys/ospf6d
 	echo
 	;;
-  restart|reload|force-reload)
+  restart|reload)
 	$0 stop
 	$0 start
 	RETVAL=$?
 	;;
-  condrestart|try-restart)
-	if [ -f $LOCK_FILE ]; then
+  condrestart)
+        if [ -f /var/lock/subsys/ospf6d ]; then
 		$0 stop
 		$0 start
 	fi
 	RETVAL=$?
 	;;
   status)
-	status $cmd
+        status ospf6d
 	RETVAL=$?
 	;;
   *)
-	echo $"Usage: $0 {start|stop|restart|reload|force-reload|condrestart|try-restart|status}"
-	exit 2
+	echo $"Usage: $prog {start|stop|restart|reload|condrestart|status}"
+	exit 1
 esac
 
 exit $RETVAL

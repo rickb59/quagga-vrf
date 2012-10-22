@@ -36,11 +36,11 @@ flags_initialize (struct flags *flags)
   flags->free_idcs = NULL;
 }
 
-long int
+int
 flags_get_index (struct flags *flags)
 {
   struct listnode *node;
-  long int index;
+  int index;
 
   if (flags->free_idcs == NULL || flags->free_idcs->count == 0)
     {
@@ -49,7 +49,7 @@ flags_get_index (struct flags *flags)
   else
     {
       node = listhead (flags->free_idcs);
-      index = (long int) listgetdata (node);
+      index = (int) listgetdata (node);
       listnode_delete (flags->free_idcs, (void *) index);
       index--;
     }
@@ -58,7 +58,7 @@ flags_get_index (struct flags *flags)
 }
 
 void
-flags_free_index (struct flags *flags, long int index)
+flags_free_index (struct flags *flags, int index)
 {
   if (index + 1 == flags->maxindex)
     {

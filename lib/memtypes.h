@@ -67,6 +67,8 @@ enum
   MTYPE_RTADV_PREFIX,
   MTYPE_VRF,
   MTYPE_VRF_NAME,
+  MTYPE_VRF_HANDLE,
+  MTYPE_SOCK_NAME,
   MTYPE_NEXTHOP,
   MTYPE_RIB,
   MTYPE_RIB_QUEUE,
@@ -96,7 +98,6 @@ enum
   MTYPE_BGP_SYNCHRONISE,
   MTYPE_BGP_ADJ_IN,
   MTYPE_BGP_ADJ_OUT,
-  MTYPE_BGP_MPATH_INFO,
   MTYPE_AS_LIST,
   MTYPE_AS_FILTER,
   MTYPE_AS_FILTER_STR,
@@ -137,8 +138,6 @@ enum
   MTYPE_RIPNG_PEER,
   MTYPE_RIPNG_OFFSET_LIST,
   MTYPE_RIPNG_RTE_DATA,
-  MTYPE_BABEL,
-  MTYPE_BABEL_IF,
   MTYPE_OSPF_TOP,
   MTYPE_OSPF_AREA,
   MTYPE_OSPF_AREA_RANGE,
@@ -193,8 +192,6 @@ enum
   MTYPE_ISIS_ROUTE_INFO,
   MTYPE_ISIS_NEXTHOP,
   MTYPE_ISIS_NEXTHOP6,
-  MTYPE_ISIS_DICT,
-  MTYPE_ISIS_DICT_NODE,
   MTYPE_VTYSH_CONFIG,
   MTYPE_VTYSH_CONFIG_LINE,
   MTYPE_MAX,
@@ -205,7 +202,6 @@ extern struct memory_list memory_list_zebra[];
 extern struct memory_list memory_list_bgp[];
 extern struct memory_list memory_list_rip[];
 extern struct memory_list memory_list_ripng[];
-extern struct memory_list memory_list_babel[];
 extern struct memory_list memory_list_ospf[];
 extern struct memory_list memory_list_ospf6[];
 extern struct memory_list memory_list_isis[];

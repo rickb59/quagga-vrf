@@ -46,7 +46,6 @@ rip_zebra_ipv4_add (struct prefix_ipv4 *p, struct in_addr *nexthop,
       api.type = ZEBRA_ROUTE_RIP;
       api.flags = 0;
       api.message = 0;
-      api.safi = SAFI_UNICAST;
       SET_FLAG (api.message, ZAPI_MESSAGE_NEXTHOP);
       api.nexthop_num = 1;
       api.nexthop = &nexthop;
@@ -77,7 +76,6 @@ rip_zebra_ipv4_delete (struct prefix_ipv4 *p, struct in_addr *nexthop,
       api.type = ZEBRA_ROUTE_RIP;
       api.flags = 0;
       api.message = 0;
-      api.safi = SAFI_UNICAST;
       SET_FLAG (api.message, ZAPI_MESSAGE_NEXTHOP);
       api.nexthop_num = 1;
       api.nexthop = &nexthop;
@@ -207,8 +205,7 @@ static struct {
   {ZEBRA_ROUTE_CONNECT, 1, "connected"},
   {ZEBRA_ROUTE_STATIC,  1, "static"},
   {ZEBRA_ROUTE_OSPF,    1, "ospf"},
-  {ZEBRA_ROUTE_BGP,     2, "bgp"},
-  {ZEBRA_ROUTE_BABEL,   2, "babel"},
+  {ZEBRA_ROUTE_BGP,     1, "bgp"},
   {0, 0, NULL}
 };
 

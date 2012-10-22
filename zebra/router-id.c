@@ -75,10 +75,12 @@ router_id_bad_address (struct connected *ifc)
 }
 
 void
-router_id_get (struct prefix *p)
+router_id_get (struct prefix *p, uint16_t vrf_id)
 {
   struct listnode *node;
   struct connected *c;
+
+/* RCB TODO find per vrf */
 
   p->u.prefix4.s_addr = 0;
   p->family = AF_INET;
@@ -101,7 +103,7 @@ router_id_get (struct prefix *p)
 }
 
 static void
-router_id_set (struct prefix *p)
+router_id_set (struct prefix *p, uint16_t vrf_id)
 {
   struct prefix p2;
   struct listnode *node;
@@ -109,10 +111,10 @@ router_id_set (struct prefix *p)
 
   rid_user_assigned.u.prefix4.s_addr = p->u.prefix4.s_addr;
 
-  router_id_get (&p2);
+  router_id_get (&p2, vrf_id);
 
   for (ALL_LIST_ELEMENTS_RO (zebrad.client_list, node, client))
-    zsend_router_id_update (client, &p2);
+    zsend_router_id_update (vrf_id, client, &p2);
 }
 
 void
@@ -123,11 +125,14 @@ router_id_add_address (struct connected *ifc)
   struct prefix before;
   struct prefix after;
   struct zserv *client;
+  int vrf_id;
 
   if (router_id_bad_address (ifc))
     return;
 
-  router_id_get (&before);
+  vrf_id = ifc->ifp->vrf_id;
+
+  router_id_get (&before, vrf_id );
 
   if (!strncmp (ifc->ifp->name, "lo", 2)
       || !strncmp (ifc->ifp->name, "dummy", 5))
@@ -138,13 +143,13 @@ router_id_add_address (struct connected *ifc)
   if (!router_id_find_node (l, ifc))
     listnode_add_sort (l, ifc);
 
-  router_id_get (&after);
+  router_id_get (&after, vrf_id);
 
   if (prefix_same (&before, &after))
     return;
 
   for (ALL_LIST_ELEMENTS_RO (zebrad.client_list, node, client))
-    zsend_router_id_update (client, &after);
+    zsend_router_id_update (vrf_id, client, &after);
 }
 
 void
@@ -156,11 +161,15 @@ router_id_del_address (struct connected *ifc)
   struct prefix before;
   struct listnode *node;
   struct zserv *client;
+  int vrf_id;
+
 
   if (router_id_bad_address (ifc))
     return;
 
-  router_id_get (&before);
+  vrf_id = ifc->ifp->vrf_id;
+
+  router_id_get (&before, vrf_id);
 
   if (!strncmp (ifc->ifp->name, "lo", 2)
       || !strncmp (ifc->ifp->name, "dummy", 5))
@@ -171,13 +180,13 @@ router_id_del_address (struct connected *ifc)
   if ((c = router_id_find_node (l, ifc)))
     listnode_delete (l, c);
 
-  router_id_get (&after);
+  router_id_get (&after, vrf_id);
 
   if (prefix_same (&before, &after))
     return;
 
   for (ALL_LIST_ELEMENTS_RO (zebrad.client_list, node, client))
-    zsend_router_id_update (client, &after);
+    zsend_router_id_update (vrf_id, client, &after);
 }
 
 void
@@ -195,6 +204,9 @@ DEFUN (router_id,
        "IP address to use for router-id\n")
 {
   struct prefix rid;
+  int vrf_id;
+
+  vrf_id = 0;
 
   rid.u.prefix4.s_addr = inet_addr (argv[0]);
   if (!rid.u.prefix4.s_addr)
@@ -203,7 +215,7 @@ DEFUN (router_id,
   rid.prefixlen = 32;
   rid.family = AF_INET;
 
-  router_id_set (&rid);
+  router_id_set (&rid, vrf_id);
 
   return CMD_SUCCESS;
 }
@@ -215,12 +227,15 @@ DEFUN (no_router_id,
        "Remove the manually configured router-id\n")
 {
   struct prefix rid;
+  int vrf_id;
+
+   vrf_id = 0;
 
   rid.u.prefix4.s_addr = 0;
   rid.prefixlen = 0;
   rid.family = AF_INET;
 
-  router_id_set (&rid);
+  router_id_set (&rid, vrf_id);
 
   return CMD_SUCCESS;
 }

@@ -47,7 +47,6 @@ struct option longopts[] =
   { "daemon",      no_argument,       NULL, 'd'},
   { "config_file", required_argument, NULL, 'f'},
   { "pid_file",    required_argument, NULL, 'i'},
-  { "socket",      required_argument, NULL, 'z'},
   { "dryrun",      no_argument,       NULL, 'C'},
   { "help",        no_argument,       NULL, 'h'},
   { "vty_addr",    required_argument, NULL, 'A'},
@@ -113,7 +112,6 @@ Daemon which manages RIPng.\n\n\
 -d, --daemon       Runs in daemon mode\n\
 -f, --config_file  Set configuration file name\n\
 -i, --pid_file     Set process identifier file name\n\
--z, --socket       Set path of zebra socket\n\
 -A, --vty_addr     Set vty's bind address\n\
 -P, --vty_port     Set vty's port number\n\
 -r, --retain       When program terminates, retain added route by ripngd.\n\
@@ -185,7 +183,7 @@ struct quagga_signal_t ripng_signals[] =
 
 /* RIPngd main routine. */
 int
-main (int argc, char **argv)
+main (int argc, char **argv, const char *ZEBRA_VTYSH_PATH)
 {
   char *p;
   int vty_port = RIPNG_VTY_PORT;
@@ -207,7 +205,7 @@ main (int argc, char **argv)
     {
       int opt;
 
-      opt = getopt_long (argc, argv, "df:i:z:hA:P:u:g:vC", longopts, 0);
+      opt = getopt_long (argc, argv, "df:i:hA:P:u:g:vC", longopts, 0);
     
       if (opt == EOF)
 	break;
@@ -228,9 +226,6 @@ main (int argc, char **argv)
         case 'i':
           pid_file = optarg;
           break;
-	case 'z':
-	  zclient_serv_path_set (optarg);
-	  break;
 	case 'P':
           /* Deal with atoi() returning 0 on failure, and ripngd not
              listening on ripngd port... */

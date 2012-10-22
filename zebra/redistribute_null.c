@@ -4,7 +4,7 @@
 
 #include "zebra/redistribute.h"
 
-void zebra_redistribute_add (int a, struct zserv *b, int c)
+void zebra_redistribute_add (int a, uint16_t vrf_id, struct zserv *b, int c)
 { return; }
 #pragma weak zebra_redistribute_delete = zebra_redistribute_add
 #pragma weak zebra_redistribute_default_add = zebra_redistribute_add

@@ -25,7 +25,7 @@
 #include "log.h"
 #include "privs.h"
 #include "memory.h"
-
+#undef HAVE_CAPABILITIES
 #ifdef HAVE_CAPABILITIES
 /* sort out some generic internal types for:
  *
@@ -73,6 +73,7 @@ static struct _zprivs_t
   uid_t zuid,                 /* uid to run as            */
         zsuid;                /* saved uid                */
   gid_t zgid;                 /* gid to run as            */
+  gid_t zsgid;
   gid_t vtygrp;               /* gid for vty sockets      */
 } zprivs_state;
 
@@ -258,6 +259,7 @@ zprivs_caps_init (struct zebra_privs_t *zprivs)
   if (zprivs_state.zuid)
     {
       if ( setreuid (zprivs_state.zuid, zprivs_state.zuid) )
+//      if ( setreuid (-1, zprivs_state.zuid) )
         {
           fprintf (stderr, "zprivs_init (cap): could not setreuid, %s\n", 
                      safe_strerror (errno));
@@ -660,6 +662,7 @@ zprivs_init(struct zebra_privs_t *zprivs)
         }
       /* change group now, forever. uid we do later */
       if ( setregid (zprivs_state.zgid, zprivs_state.zgid) )
+//      if ( setregid (-1, zprivs_state.zgid ))
         {
           fprintf (stderr, "zprivs_init: could not setregid, %s\n",
                     safe_strerror (errno) );
@@ -667,7 +670,8 @@ zprivs_init(struct zebra_privs_t *zprivs)
         }
     }
   
-#ifdef HAVE_CAPABILITIES
+//#ifdef HAVE_CAPABILITIES
+#if 0
   zprivs_caps_init (zprivs);
 #else /* !HAVE_CAPABILITIES */
   /* we dont have caps. we'll need to maintain rid and saved uid
@@ -677,6 +681,7 @@ zprivs_init(struct zebra_privs_t *zprivs)
    * This is not worth that much security wise, but all we can do.
    */
   zprivs_state.zsuid = geteuid();  
+//  zprivs_state.zsgid = getegid();
   if ( zprivs_state.zuid )
     {
       if ( setreuid (-1, zprivs_state.zuid) )
@@ -734,4 +739,12 @@ zprivs_get_ids(struct zprivs_ids_t *ids)
                        : (ids->gid_vty = -1);
    
    return;
+}
+
+void
+zprivs_get_uidgid (int *uid, int *gid)
+{
+	*uid = zprivs_state.zuid;
+	*gid = zprivs_state.zgid;
+
 }

@@ -1,4 +1,4 @@
-#!/usr/bin/env perl
+#! /usr/bin/perl
 ##
 ## Zebra interactive console
 ## Copyright (C) 2000 Vladimir B. Grebenschikov <vova@express.ru>

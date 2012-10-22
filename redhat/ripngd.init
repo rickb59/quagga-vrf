@@ -1,12 +1,10 @@
 #!/bin/bash
-# chkconfig: - 16 84
+#
+# chkconfig: 2345 16 84
+# description: A RIP routing engine for use with Zebra and IPv6
+#
+# processname: ripngd
 # config: /etc/quagga/ripngd.conf
-
-### BEGIN INIT INFO
-# Provides: ripngd
-# Short-Description: RIP routing engine for IPv6
-# Description: RIP routing engine for use with Zebra and IPv6
-### END INIT INFO
 
 # source function library
 . /etc/rc.d/init.d/functions
@@ -17,56 +15,49 @@
 # quagga command line options
 . /etc/sysconfig/quagga
 
+	# Check that networking is up.
+[ "${NETWORKING_IPV6}" = "no" ] && exit 0
+
+	# The process must be configured first.
+[ -f /etc/quagga/ripngd.conf ] || exit 0
+
 RETVAL=0
-PROG="ripngd"
-cmd=ripngd
-LOCK_FILE=/var/lock/subsys/ripngd
-CONF_FILE=/etc/quagga/ripngd.conf
+prog="ripngd"
 
 case "$1" in
   start)
-	# Check that networking is up.
-	[ "${NETWORKING}" = "no" ] && exit 1
-
-	# The process must be configured first.
-	[ -f $CONF_FILE ] || exit 6
-	if [ `id -u` -ne 0 ]; then
-		echo $"Insufficient privilege" 1>&2
-		exit 4
-	fi
-
-	echo -n $"Starting $PROG: "
-	daemon $cmd -d $RIPNGD_OPTS -f $CONF_FILE
+	echo -n $"Starting $prog: "
+        daemon /usr/sbin/ripngd -d $RIPNGD_OPTS
 	RETVAL=$?
-	[ $RETVAL -eq 0 ] && touch $LOCK_FILE
+	[ $RETVAL -eq 0 ] && touch /var/lock/subsys/ripngd
 	echo
 	;;
   stop)
-	echo -n $"Shutting down $PROG: "
-	killproc $cmd
+	echo -n $"Shutting down $prog: "
+	killproc ripngd
 	RETVAL=$?
-	[ $RETVAL -eq 0 ] && rm -f $LOCK_FILE
+	[ $RETVAL -eq 0 ] && rm -f /var/lock/subsys/ripngd
 	echo
 	;;
-  restart|reload|force-reload)
+  restart|reload)
 	$0 stop
 	$0 start
 	RETVAL=$?
 	;;
-  condrestart|try-restart)
-	if [ -f $LOCK_FILE ]; then
+  condrestart)
+        if [ -f /var/lock/subsys/ripngd ]; then
 		$0 stop
 		$0 start
 	fi
 	RETVAL=$?
 	;;
   status)
-	status $cmd
+        status ripngd
 	RETVAL=$?
 	;;
   *)
-	echo $"Usage: $0 {start|stop|restart|reload|force-reload|condrestart|try-restart|status}"
-	exit 2
+	echo $"Usage: $0 {start|stop|restart|reload|condrestart|status}"
+	exit 1
 esac
 
 exit $RETVAL

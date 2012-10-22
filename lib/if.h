@@ -36,6 +36,9 @@ Boston, MA 02111-1307, USA.  */
 #define INTERFACE_NAMSIZ      20
 #define INTERFACE_HWADDR_MAX  20
 
+#define VLAN_ID_MAX 4095
+
+
 #ifdef HAVE_PROC_NET_DEV
 struct if_stats
 {
@@ -83,6 +86,7 @@ struct interface
   /* Interface index (should be IFINDEX_INTERNAL for non-kernel or
      deleted interfaces). */
   unsigned int ifindex;
+  struct interface *parent;
 #define IFINDEX_INTERNAL	0
 
   /* Zebra internal interface status */
@@ -133,6 +137,9 @@ struct interface
 #ifdef HAVE_NET_RT_IFLIST
   struct if_data stats;
 #endif /* HAVE_NET_RT_IFLIST */
+  int vrf_id;
+  int type;
+  int vlan;
 };
 
 /* Connected address structure. */
@@ -230,22 +237,22 @@ struct connected
 
 /* Prototypes. */
 extern int if_cmp_func (struct interface *, struct interface *);
-extern struct interface *if_create (const char *name, int namelen);
+extern struct interface *if_create (const char *name, int namelen, int vrf_id);
 extern struct interface *if_lookup_by_index (unsigned int);
-extern struct interface *if_lookup_exact_address (struct in_addr);
+extern struct interface *if_lookup_exact_address (struct in_addr, int vrf_id);
 extern struct interface *if_lookup_address (struct in_addr);
 
 /* These 2 functions are to be used when the ifname argument is terminated
    by a '\0' character: */
-extern struct interface *if_lookup_by_name (const char *ifname);
-extern struct interface *if_get_by_name (const char *ifname);
+extern struct interface *if_lookup_by_name (const char *ifname, int vrf_id);
+extern struct interface *if_get_by_name (const char *ifname, int vrf_id);
 
 /* For these 2 functions, the namelen argument should be the precise length
    of the ifname string (not counting any optional trailing '\0' character).
    In most cases, strnlen should be used to calculate the namelen value. */
 extern struct interface *if_lookup_by_name_len(const char *ifname,
-					       size_t namelen);
-extern struct interface *if_get_by_name_len(const char *ifname, size_t namelen);
+					       size_t namelen, int vrf_id);
+extern struct interface *if_get_by_name_len(const char *ifname, size_t namelen, int vrf_id);
 
 
 /* Delete the interface, but do not free the structure, and leave it in the
@@ -265,9 +272,9 @@ extern int if_is_broadcast (struct interface *);
 extern int if_is_pointopoint (struct interface *);
 extern int if_is_multicast (struct interface *);
 extern void if_add_hook (int, int (*)(struct interface *));
-extern void if_init (void);
+extern void if_init ();
 extern void if_terminate (void);
-extern void if_dump_all (void);
+extern void if_dump_all (struct list *iflist);
 extern const char *if_flag_dump(unsigned long);
 
 /* Please use ifindex2ifname instead of if_indextoname where possible;
@@ -278,7 +285,7 @@ extern const char *ifindex2ifname (unsigned int);
 /* Please use ifname2ifindex instead of if_nametoindex where possible;
    ifname2ifindex uses internal interface info, whereas if_nametoindex must
    make a system call. */
-extern unsigned int ifname2ifindex(const char *ifname);
+extern unsigned int ifname2ifindex(const char *ifname, int vrf_id);
 
 /* Connected address functions. */
 extern struct connected *connected_new (void);
@@ -308,5 +315,8 @@ extern struct cmd_element no_interface_cmd;
 extern struct cmd_element interface_pseudo_cmd;
 extern struct cmd_element no_interface_pseudo_cmd;
 extern struct cmd_element show_address_cmd;
+extern struct cmd_element interface_vlan_cmd;
+extern struct cmd_element no_interface_vlan_cmd;
+
 
 #endif /* _ZEBRA_IF_H */

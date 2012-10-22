@@ -30,13 +30,11 @@
 #include "hash.h"
 #include "prefix.h"
 #include "stream.h"
-#include "table.h"
 
 #include "isisd/dict.h"
 #include "isisd/include-netbsd/iso.h"
 #include "isisd/isis_constants.h"
 #include "isisd/isis_common.h"
-#include "isisd/isis_flags.h"
 #include "isisd/isis_circuit.h"
 #include "isisd/isis_tlv.h"
 #include "isisd/isis_lsp.h"
@@ -46,10 +44,14 @@
 #include "isisd/isis_constants.h"
 #include "isisd/isis_adjacency.h"
 #include "isisd/isis_dr.h"
+#include "isisd/isis_flags.h"
 #include "isisd/isisd.h"
 #include "isisd/isis_csm.h"
 #include "isisd/isis_events.h"
 #include "isisd/isis_spf.h"
+
+extern struct thread_master *master;
+extern struct isis *isis;
 
 /* debug isis-spf spf-events 
  4w4d: ISIS-Spf (tlt): L2 SPF needed, new adjacency, from 0x609229F4
@@ -60,57 +62,24 @@
 */
 
 void
-isis_event_circuit_state_change (struct isis_circuit *circuit,
-                                 struct isis_area *area, int up)
+isis_event_circuit_state_change (struct isis_circuit *circuit, int up)
 {
+  struct isis_area *area;
+
+  area = circuit->area;
+  assert (area);
   area->circuit_state_changes++;
 
   if (isis->debugs & DEBUG_EVENTS)
-    zlog_debug ("ISIS-Evt (%s) circuit %s", area->area_tag,
+    zlog_debug ("ISIS-Evt (%s) circuit %s", circuit->area->area_tag,
                 up ? "up" : "down");
 
   /*
    * Regenerate LSPs this affects
    */
-  lsp_regenerate_schedule (area, IS_LEVEL_1 | IS_LEVEL_2, 0);
+  lsp_regenerate_schedule (area);
 
   return;
-}
-
-static void
-area_resign_level (struct isis_area *area, int level)
-{
-  if (area->lspdb[level - 1])
-    {
-      lsp_db_destroy (area->lspdb[level - 1]);
-      area->lspdb[level - 1] = NULL;
-    }
-  if (area->spftree[level - 1])
-    {
-      isis_spftree_del (area->spftree[level - 1]);
-      area->spftree[level - 1] = NULL;
-    }
-#ifdef HAVE_IPV6
-  if (area->spftree6[level - 1])
-    {
-      isis_spftree_del (area->spftree6[level - 1]);
-      area->spftree6[level - 1] = NULL;
-    }
-#endif
-  if (area->route_table[level - 1])
-    {
-      route_table_finish (area->route_table[level - 1]);
-      area->route_table[level - 1] = NULL;
-    }
-#ifdef HAVE_IPV6
-  if (area->route_table6[level - 1])
-    {
-      route_table_finish (area->route_table6[level - 1]);
-      area->route_table6[level - 1] = NULL;
-    }
-#endif /* HAVE_IPV6 */
-
-  THREAD_TIMER_OFF (area->t_lsp_refresh[level - 1]);
 }
 
 void
@@ -129,62 +98,43 @@ isis_event_system_type_change (struct isis_area *area, int newtype)
   switch (area->is_type)
   {
     case IS_LEVEL_1:
-      if (newtype == IS_LEVEL_2)
-        area_resign_level (area, IS_LEVEL_1);
-
       if (area->lspdb[1] == NULL)
         area->lspdb[1] = lsp_db_init ();
-      if (area->route_table[1] == NULL)
-        area->route_table[1] = route_table_init ();
-#ifdef HAVE_IPV6
-      if (area->route_table6[1] == NULL)
-        area->route_table6[1] = route_table_init ();
-#endif /* HAVE_IPV6 */
+      lsp_l2_generate (area);
       break;
-
     case IS_LEVEL_1_AND_2:
       if (newtype == IS_LEVEL_1)
-        area_resign_level (area, IS_LEVEL_2);
+	{
+	  lsp_db_destroy (area->lspdb[1]);
+	}
       else
-        area_resign_level (area, IS_LEVEL_1);
+	{
+	  lsp_db_destroy (area->lspdb[0]);
+	}
       break;
-
     case IS_LEVEL_2:
-      if (newtype == IS_LEVEL_1)
-        area_resign_level (area, IS_LEVEL_2);
-
       if (area->lspdb[0] == NULL)
         area->lspdb[0] = lsp_db_init ();
-      if (area->route_table[0] == NULL)
-        area->route_table[0] = route_table_init ();
-#ifdef HAVE_IPV6
-      if (area->route_table6[0] == NULL)
-        area->route_table6[0] = route_table_init ();
-#endif /* HAVE_IPV6 */
+      lsp_l1_generate (area);
       break;
-
     default:
       break;
   }
 
   area->is_type = newtype;
-
-  /* override circuit's is_type */
-  if (area->is_type != IS_LEVEL_1_AND_2)
-  {
     for (ALL_LIST_ELEMENTS_RO (area->circuit_list, node, circuit))
       isis_event_circuit_type_change (circuit, newtype);
-  }
 
   spftree_area_init (area);
-
-  if (newtype & IS_LEVEL_1)
-    lsp_generate (area, IS_LEVEL_1);
-  if (newtype & IS_LEVEL_2)
-    lsp_generate (area, IS_LEVEL_2);
-  lsp_regenerate_schedule (area, IS_LEVEL_1 | IS_LEVEL_2, 1);
+  lsp_regenerate_schedule (area);
 
   return;
+}
+
+void
+isis_event_area_addr_change (struct isis_area *area)
+{
+
 }
 
 static void
@@ -192,14 +142,13 @@ circuit_commence_level (struct isis_circuit *circuit, int level)
 {
   if (level == 1)
     {
-      if (! circuit->is_passive)
         THREAD_TIMER_ON (master, circuit->t_send_psnp[0], send_l1_psnp, circuit,
 		         isis_jitter (circuit->psnp_interval[0], PSNP_JITTER));
 
       if (circuit->circ_type == CIRCUIT_T_BROADCAST)
 	{
 	  THREAD_TIMER_ON (master, circuit->u.bc.t_run_dr[0], isis_run_dr_l1,
-			   circuit, 2 * circuit->hello_interval[0]);
+			   circuit, 2 * circuit->hello_interval[1]);
 
 	  THREAD_TIMER_ON (master, circuit->u.bc.t_send_lan_hello[0],
 			   send_lan_l1_hello, circuit,
@@ -211,7 +160,6 @@ circuit_commence_level (struct isis_circuit *circuit, int level)
     }
   else
     {
-      if (! circuit->is_passive)
         THREAD_TIMER_ON (master, circuit->t_send_psnp[1], send_l2_psnp, circuit,
 		         isis_jitter (circuit->psnp_interval[1], PSNP_JITTER));
 
@@ -246,8 +194,6 @@ circuit_resign_level (struct isis_circuit *circuit, int level)
       THREAD_TIMER_OFF (circuit->u.bc.t_run_dr[idx]);
       THREAD_TIMER_OFF (circuit->u.bc.t_refresh_pseudo_lsp[idx]);
       circuit->u.bc.run_dr_elect[idx] = 0;
-      list_delete (circuit->u.bc.lan_neighs[idx]);
-      circuit->u.bc.lan_neighs[idx] = NULL;
     }
 
   return;
@@ -256,19 +202,14 @@ circuit_resign_level (struct isis_circuit *circuit, int level)
 void
 isis_event_circuit_type_change (struct isis_circuit *circuit, int newtype)
 {
-  if (circuit->state != C_STATE_UP)
-  {
-    circuit->is_type = newtype;
-    return;
-  }
 
   if (isis->debugs & DEBUG_EVENTS)
     zlog_debug ("ISIS-Evt (%s) circuit type change %s -> %s",
 	       circuit->area->area_tag,
-	       circuit_t2string (circuit->is_type),
+	       circuit_t2string (circuit->circuit_is_type),
 	       circuit_t2string (newtype));
 
-  if (circuit->is_type == newtype)
+  if (circuit->circuit_is_type == newtype)
     return;			/* No change */
 
   if (!(newtype & circuit->area->is_type))
@@ -280,7 +221,7 @@ isis_event_circuit_type_change (struct isis_circuit *circuit, int newtype)
       return;
     }
 
-  switch (circuit->is_type)
+  switch (circuit->circuit_is_type)
     {
     case IS_LEVEL_1:
       if (newtype == IS_LEVEL_2)
@@ -302,8 +243,8 @@ isis_event_circuit_type_change (struct isis_circuit *circuit, int newtype)
       break;
     }
 
-  circuit->is_type = newtype;
-  lsp_regenerate_schedule (circuit->area, IS_LEVEL_1 | IS_LEVEL_2, 0);
+  circuit->circuit_is_type = newtype;
+  lsp_regenerate_schedule (circuit->area);
 
   return;
 }
@@ -345,7 +286,7 @@ isis_event_adjacency_state_change (struct isis_adjacency *adj, int newstate)
 		adj->circuit->area->area_tag);
 
   /* LSP generation again */
-  lsp_regenerate_schedule (adj->circuit->area, IS_LEVEL_1 | IS_LEVEL_2, 0);
+  lsp_regenerate_schedule (adj->circuit->area);
 
   return;
 }
@@ -366,7 +307,7 @@ isis_event_dis_status_change (struct thread *thread)
     zlog_debug ("ISIS-Evt (%s) DIS status change", circuit->area->area_tag);
 
   /* LSP generation again */
-  lsp_regenerate_schedule (circuit->area, IS_LEVEL_1 | IS_LEVEL_2, 0);
+  lsp_regenerate_schedule (circuit->area);
 
   return 0;
 }

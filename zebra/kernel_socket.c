@@ -319,7 +319,6 @@ int
 ifm_read (struct if_msghdr *ifm)
 {
   struct interface *ifp = NULL;
-  struct sockaddr_dl *sdl;
   char ifname[IFNAMSIZ];
   short ifnlen = 0;
   caddr_t *cp;
@@ -357,7 +356,6 @@ ifm_read (struct if_msghdr *ifm)
   RTA_ADDR_GET (NULL, RTA_GATEWAY, ifm->ifm_addrs, cp);
   RTA_ATTR_GET (NULL, RTA_NETMASK, ifm->ifm_addrs, cp);
   RTA_ADDR_GET (NULL, RTA_GENMASK, ifm->ifm_addrs, cp);
-  sdl = (struct sockaddr_dl *)cp;
   RTA_NAME_GET (ifname, RTA_IFP, ifm->ifm_addrs, cp, ifnlen);
   RTA_ADDR_GET (NULL, RTA_IFA, ifm->ifm_addrs, cp);
   RTA_ADDR_GET (NULL, RTA_AUTHOR, ifm->ifm_addrs, cp);
@@ -455,16 +453,6 @@ ifm_read (struct if_msghdr *ifm)
       if_get_mtu (ifp);
 #endif /* __bsdi__ */
       if_get_metric (ifp);
-
-      /*
-       * XXX sockaddr_dl contents can be larger than the structure
-       * definition, so the user of the stored structure must be
-       * careful not to read off the end.
-       *
-       * a nonzero ifnlen from RTA_NAME_GET() means sdl is valid
-       */
-      if (ifnlen)
-	memcpy (&ifp->sdl, sdl, sizeof (struct sockaddr_dl));
 
       if_add_update (ifp);
     }
@@ -618,7 +606,7 @@ ifam_read_mesg (struct ifa_msghdr *ifm,
 
   /* Assert read up end point matches to end point */
   if (pnt != end)
-    zlog_warn ("ifam_read() doesn't read all socket data");
+    zlog_warn ("ifam_read() does't read all socket data");
 }
 
 /* Interface's address information get. */
@@ -766,7 +754,7 @@ rtm_read_mesg (struct rt_msghdr *rtm,
 
   /* Assert read up to the end of pointer. */
   if (pnt != end) 
-      zlog (NULL, LOG_WARNING, "rtm_read() doesn't read all socket data.");
+      zlog (NULL, LOG_WARNING, "rtm_read() does't read all socket data.");
 
   return rtm->rtm_flags;
 }
@@ -906,16 +894,16 @@ rtm_read (struct rt_msghdr *rtm)
        */
       if (rtm->rtm_type == RTM_CHANGE)
         rib_delete_ipv4 (ZEBRA_ROUTE_KERNEL, zebra_flags, &p,
-                         NULL, 0, 0, SAFI_UNICAST);
+                         NULL, 0, 0);
       
       if (rtm->rtm_type == RTM_GET 
           || rtm->rtm_type == RTM_ADD
           || rtm->rtm_type == RTM_CHANGE)
 	rib_add_ipv4 (ZEBRA_ROUTE_KERNEL, zebra_flags, 
-		      &p, &gate.sin.sin_addr, NULL, 0, 0, 0, 0, SAFI_UNICAST);
+		      &p, &gate.sin.sin_addr, NULL, 0, 0, 0, 0);
       else
 	rib_delete_ipv4 (ZEBRA_ROUTE_KERNEL, zebra_flags, 
-		      &p, &gate.sin.sin_addr, 0, 0, SAFI_UNICAST);
+		      &p, &gate.sin.sin_addr, 0, 0);
     }
 #ifdef HAVE_IPV6
   if (dest.sa.sa_family == AF_INET6)
@@ -948,16 +936,16 @@ rtm_read (struct rt_msghdr *rtm)
        */
       if (rtm->rtm_type == RTM_CHANGE)
         rib_delete_ipv6 (ZEBRA_ROUTE_KERNEL, zebra_flags, &p,
-                         NULL, 0, 0, SAFI_UNICAST);
+                         NULL, 0, 0);
       
       if (rtm->rtm_type == RTM_GET 
           || rtm->rtm_type == RTM_ADD
           || rtm->rtm_type == RTM_CHANGE)
 	rib_add_ipv6 (ZEBRA_ROUTE_KERNEL, zebra_flags,
-		      &p, &gate.sin6.sin6_addr, ifindex, 0, 0, 0, SAFI_UNICAST);
+		      &p, &gate.sin6.sin6_addr, ifindex, 0, 0, 0);
       else
 	rib_delete_ipv6 (ZEBRA_ROUTE_KERNEL, zebra_flags,
-			 &p, &gate.sin6.sin6_addr, ifindex, 0, SAFI_UNICAST);
+			 &p, &gate.sin6.sin6_addr, ifindex, 0);
     }
 #endif /* HAVE_IPV6 */
 }
